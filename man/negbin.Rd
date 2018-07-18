@@ -29,7 +29,7 @@ nb(theta = NULL, link = "log")
 }
 \arguments{
 \item{theta}{Either i) a single value known value of theta or ii) two values of theta specifying the 
-endpoints of an interval over which to search for theta (this is an option only for \code{negbin}). 
+endpoints of an interval over which to search for theta (this is an option only for \code{negbin}, and is deprecated). 
 For \code{nb} then a positive supplied \code{theta} is treated as a fixed known parameter, otherwise 
 it is estimated (the absolute value of a negative \code{theta} is taken as a starting value).}
 \item{link}{The link function: one of \code{"log"}, \code{"identity"} or \code{"sqrt"}}
@@ -44,11 +44,11 @@ estimate of \code{theta} after fitting (see example).}
 For \code{nb} an object inheriting from class \code{extended.family}.
 }
 
-\details{\code{nb} allows estimation of the \code{theta} parameter alongside the model smoothing parameters, but is only useable with \code{\link{gam}} (not \code{bam} or \code{gam}).
+\details{\code{nb} allows estimation of the \code{theta} parameter alongside the model smoothing parameters, but is only usable with \code{\link{gam}} or \code{\link{bam}} (not \code{gamm}).
 
 For \code{negbin}, if a single value of \code{theta} is supplied then it is always taken as the known fixed value and this is useable with \code{\link{bam}} and \code{\link{gamm}}. If \code{theta} is two 
 numbers (\code{theta[2]>theta[1]}) then they are taken as specifying the range of values over which to search for 
-the optimal theta. This option should only be used with performance iteration estimation (see \code{\link{gam}} argument \code{optimizer}), in which case  the method 
+the optimal theta. This option is deprecated and should only be used with performance iteration estimation (see \code{\link{gam}} argument \code{optimizer}), in which case  the method 
 of estimation is to choose \eqn{\hat \theta}{theta}  so that the GCV (Pearson) estimate 
 of the scale parameter is one (since the scale parameter 
 is one for the negative binomial). In this case \eqn{\theta}{theta} estimation is nested within the IRLS loop 
@@ -60,22 +60,6 @@ a simple bisection search after an initial crude line search to bracket one. The
 terminate at the upper boundary of the search region is a Poisson fit would have yielded an estimated 
 scale parameter <1.
 
-The following \code{negbin} based approaches are now deprecated:
-
-If outer iteration is used then \eqn{\theta}{theta} is estimated by searching for the value yielding the lowest AIC.
-The search is either over the supplied array of values, or is a grid search over the supplied range, followed by a 
-golden section search. A full fit is required for each trial \eqn{\theta}{theta}, so the process is slow, but speed
-is enhanced by making the changes in \eqn{\theta}{theta} as small as possible, from one step to the next, and 
-using the previous smothing parameter and fitted values to start the new fit. 
-
-In a simulation test based on 800 replicates of
-the first example data, given below, the GCV based (performance iteration) method yielded models with, 
-on avergage 6\% better MSE performance than the AIC based (outer iteration) method. 
-\code{theta} had a 0.86 correlation coefficient between the two methods.
-\code{theta} estimates averaged 3.36 with a standard deviation of 0.44 for the AIC based method and
-3.22 with a standard deviation of 0.43 for the GCV based method. However the GCV based method is 
-less computationally reliable, failing in around 4\% of replicates. 
-
 }
 
 %- maybe also `usage' for other objects documented here.
@@ -86,10 +70,16 @@ modified from Venables and Ripley's \code{negative.binomial} family.
 
 \references{
 Venables, B. and B.R. Ripley (2002) Modern Applied Statistics in S, Springer.
+
+Wood, S.N., N. Pya and B. Saefken (2016), Smoothing parameter and
+model selection for general smooth models.
+Journal of the American Statistical Association 111, 1548-1575
+\url{http://dx.doi.org/10.1080/01621459.2016.1180986}
+
 }
 
 \section{WARNINGS}{
-\code{\link{gamm}} and \code{\link{bam}} do not support \code{theta} estimation
+\code{\link{gamm}} does not support \code{theta} estimation
 
 The negative binomial functions from the MASS library are no longer supported.
 }
@@ -114,11 +104,6 @@ plot(b,pages=1)
 print(b)
 b$family$getTheta(TRUE) ## extract final theta estimate
 
-## unknown theta via performance iteration...
-b1 <- gam(y~s(x0)+s(x1)+s(x2)+s(x3),family=negbin(c(1,10)),
-          optimizer="perf",data=dat)
-plot(b1,pages=1)
-print(b1)
 
 ## another example...
 set.seed(1)

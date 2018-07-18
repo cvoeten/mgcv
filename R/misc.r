@@ -18,6 +18,82 @@ rmvn <- function(n,mu,V) {
   z
 } ## rmvn
 
+sdiag <- function(A,k=0) {
+## extract sub or super diagonal of matrix (k=0 is leading)  
+ p <- ncol(A)
+ n <- nrow(A)
+ if (k>p-1||-k > n-1) return()
+ if (k >= 0) {
+   i <- 1:n
+   j <- (k+1):p
+ } else {
+   i <- (-k+1):n
+   j <- 1:p
+ }
+ if (length(i)>length(j)) i <- i[1:length(j)] else j <- j[1:length(i)]
+ ii <- i + (j-1) * n 
+ A[ii]
+} ## sdiag
+
+"sdiag<-" <- function(A,k=0,value) {
+ p <- ncol(A)
+ n <- nrow(A)
+ if (k>p-1||-k > n-1) return()
+ if (k >= 0) {
+   i <- 1:n
+   j <- (k+1):p
+ } else {
+   i <- (-k+1):n
+   j <- 1:p
+ }
+ if (length(i)>length(j)) i <- i[1:length(j)] else j <- j[1:length(i)]
+ ii <- i + (j-1) * n 
+ A[ii] <- value
+ A
+} ## "sdiag<-"
+
+bandchol <- function(B) {
+## obtain R such that R'R = A. Where A is banded matrix contained in R.
+  n <- ncol(B)
+  k <- 0
+  if (n==nrow(B)) { ## square matrix. Extract the diagonals
+    A <- B*0
+    for (i in 1:n) {
+      b <- sdiag(B,i-1)
+      if (sum(b!=0)!=0) {
+        k <- i ## largest index of a non-zero band
+        A[i,1:length(b)] <- b
+      }
+    } 
+    B <- A[1:k,]
+  }
+  oo <- .C(C_band_chol,B=as.double(B),n=as.integer(n),k=as.integer(nrow(B)),info=as.integer(0))
+  if (oo$info<0) stop("something wrong with inputs to LAPACK routine")
+  if (oo$info>0) stop("not positive definite")
+  B <- matrix(oo$B,nrow(B),n)
+  if (k>0) { ## was square on entry, so also on exit...
+    A <- A * 0
+    for (i in 1:k) sdiag(A,i-1) <- B[i,1:(n-i+1)]
+    B <- A
+  }
+  B
+} ## bandchol
+
+trichol <- function(ld,sd) {
+## obtain chol factor R of symm tridiag matrix, A, with leading diag
+## ld and sub/super diags sd. R'R = A. On exit ld is diag of R and
+## sd its super diagonal.
+  n <- length(ld)
+  if (n<2) stop("don't be silly")
+  if (n!=length(sd)+1) stop("sd should have exactly one less entry than ld")
+  oo <- .C(C_tri_chol,ld=as.double(ld),sd=as.double(sd),n=as.integer(n),info=as.integer(0))
+  if (oo$info<0) stop("something wrong with inputs to LAPACK routine")
+  if (oo$info>0) stop("not positive definite")
+  ld <- sqrt(oo$ld)
+  sd <- oo$sd*ld[1:(n-1)]
+  list(ld=ld,sd=sd)
+}
+
 mgcv.omp <- function() {
 ## does open MP appear to be available?
   oo <- .C(C_mgcv_omp,a=as.integer(-1))
@@ -50,14 +126,14 @@ mvn.ll <- function(y,X,beta,dbeta=NULL) {
     }
   }
   list(l=oo$ll,lb=oo$lb,lbb=matrix(oo$lbb,nb,nb),dH=dH)
-}
+} ## mvn.ll
 
 ## discretized covariate routines...
 
-XWXd <- function(X,w,k,ts,dt,v,qc,nthreads=1,drop=NULL,ar.stop=-1,ar.row=-1,ar.w=-1) {
+XWXd <- function(X,w,k,ks,ts,dt,v,qc,nthreads=1,drop=NULL,ar.stop=-1,ar.row=-1,ar.w=-1) {
 ## Form X'WX given weights in w and X in compressed form in list X.
 ## each element of X is a (marginal) model submatrix. Full version 
-## is given by X[[i]][k[,i],]. list X relates to length(ds) separate
+## is given by X[[i]][k[,i],]. list X relates to length(ts) separate
 ## terms. ith term starts at matrix ts[i] and has dt[i] marginal matrices.
 ## Terms with several marginals are tensor products and may have 
 ## constraints (if qc[i]>1), stored as a householder vector in v[[i]]. 
@@ -68,41 +144,65 @@ XWXd <- function(X,w,k,ts,dt,v,qc,nthreads=1,drop=NULL,ar.stop=-1,ar.row=-1,ar.w
   n <- length(w);pt <- 0;
   for (i in 1:nt) pt <- pt + prod(p[ts[i]:(ts[i]+dt[i]-1)]) - as.numeric(qc[i]>0) 
   oo <- .C(C_XWXd,XWX =as.double(rep(0,pt^2)),X= as.double(unlist(X)),w=as.double(w),
-           k=as.integer(k-1),m=as.integer(m),p=as.integer(p), n=as.integer(n), 
+           k=as.integer(k-1),ks=as.integer(ks-1),m=as.integer(m),p=as.integer(p), n=as.integer(n), 
            ns=as.integer(nx), ts=as.integer(ts-1), as.integer(dt), nt=as.integer(nt),
            v = as.double(unlist(v)),qc=as.integer(qc),nthreads=as.integer(nthreads),
            ar.stop=as.integer(ar.stop-1),ar.row=as.integer(ar.row-1),ar.weights=as.double(ar.w))
   if (is.null(drop)) matrix(oo$XWX,pt,pt) else matrix(oo$XWX,pt,pt)[-drop,-drop]
 } ## XWXd
 
-XWyd <- function(X,w,y,k,ts,dt,v,qc,drop=NULL,ar.stop=-1,ar.row=-1,ar.w=-1) {
+XWyd <- function(X,w,y,k,ks,ts,dt,v,qc,drop=NULL,ar.stop=-1,ar.row=-1,ar.w=-1) {
 ## X'Wy...  
   m <- unlist(lapply(X,nrow));p <- unlist(lapply(X,ncol))
   nx <- length(X);nt <- length(ts)
   n <- length(w);pt <- 0;
   for (i in 1:nt) pt <- pt + prod(p[ts[i]:(ts[i]+dt[i]-1)]) - as.numeric(qc[i]>0) 
   oo <- .C(C_XWyd,XWy=rep(0,pt),y=as.double(y),X=as.double(unlist(X)),w=as.double(w),k=as.integer(k-1), 
+           ks=as.integer(ks-1),
            m=as.integer(m),p=as.integer(p),n=as.integer(n), nx=as.integer(nx), ts=as.integer(ts-1), 
            dt=as.integer(dt),nt=as.integer(nt),v=as.double(unlist(v)),qc=as.integer(qc),
            ar.stop=as.integer(ar.stop-1),ar.row=as.integer(ar.row-1),ar.weights=as.double(ar.w))
   if (is.null(drop)) oo$XWy else oo$XWy[-drop]
 } ## XWyd 
 
-Xbd <- function(X,beta,k,ts,dt,v,qc,drop=NULL) {
+Xbd <- function(X,beta,k,ks,ts,dt,v,qc,drop=NULL) {
 ## note that drop may contain the index of columns of X to drop before multiplying by beta.
 ## equivalently we can insert zero elements into beta in the appropriate places.
-  n <- nrow(k);m <- unlist(lapply(X,nrow));p <- unlist(lapply(X,ncol))
-  nx <- length(X);nt <- length(ts)
+  n <- if (is.matrix(k)) nrow(k) else length(k) ## number of data
+  m <- unlist(lapply(X,nrow)) ## number of rows in each discrete model matrix
+  p <- unlist(lapply(X,ncol)) ## number of cols in each discrete model matrix
+  nx <- length(X) ## number of model matrices
+  nt <- length(ts) ## number of terms
   if (!is.null(drop)) { 
-    b <- rep(0,length(beta)+length(drop))
-    b[-drop] <- beta
+    b <- if (is.matrix(beta)) matrix(0,nrow(beta)+length(drop),ncol(beta)) else rep(0,length(beta)+length(drop))
+    if (is.matrix(beta)) b[-drop,] <- beta else b[-drop] <- beta
     beta <- b
   }
-  oo <- .C(C_Xbd,f=as.double(rep(0,n)),beta=as.double(beta),X=as.double(unlist(X)),k=as.integer(k-1), 
+  bc <- if (is.matrix(beta)) ncol(beta) else 1 ## number of columns in beta
+  oo <- .C(C_Xbd,f=as.double(rep(0,n*bc)),beta=as.double(beta),X=as.double(unlist(X)),k=as.integer(k-1),
+           ks = as.integer(ks-1), 
            m=as.integer(m),p=as.integer(p), n=as.integer(n), nx=as.integer(nx), ts=as.integer(ts-1), 
-           as.integer(dt), as.integer(nt),as.double(unlist(v)),as.integer(qc))
-  oo$f
+           as.integer(dt), as.integer(nt),as.double(unlist(v)),as.integer(qc),as.integer(bc))
+  if (is.matrix(beta)) matrix(oo$f,n,bc) else oo$f
 } ## Xbd
+
+diagXVXd <- function(X,V,k,ks,ts,dt,v,qc,drop=NULL,n.threads=1) {
+## discrete computation of diag(XVX')
+  n <- if (is.matrix(k)) nrow(k) else length(k)
+  m <- unlist(lapply(X,nrow));p <- unlist(lapply(X,ncol))
+  nx <- length(X);nt <- length(ts)
+  if (!is.null(drop)) { 
+    pv <- ncol(V)+length(drop)
+    V0 <- matrix(0,pv,pv)
+    V0[-drop,-drop] <- V
+    V <- V0;rm(V0)
+  } else pv <- ncol(V) 
+  oo <- .C(C_diagXVXt,diag=as.double(rep(0,n)),V=as.double(V),X=as.double(unlist(X)),k=as.integer(k-1), 
+           ks=as.integer(ks-1),
+           m=as.integer(m),p=as.integer(p), n=as.integer(n), nx=as.integer(nx), ts=as.integer(ts-1), 
+           as.integer(dt), as.integer(nt),as.double(unlist(v)),as.integer(qc),as.integer(pv),as.integer(n.threads))
+  oo$diag
+} ## diagXVXd
 
 dchol <- function(dA,R) {
 ## if dA contains matrix dA/dx where R is chol factor s.t. R'R = A

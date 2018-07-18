@@ -21,7 +21,7 @@ Not normally called directly, but rather a service routine for \code{\link{gam}}
 }
 \usage{
 gam.outer(lsp,fscale,family,control,method,optimizer,
-          criterion,scale,gamma,G,...)
+          criterion,scale,gamma,G,start=NULL,...)
 }
 %- maybe also `usage' for other objects documented here.
 \arguments{ 
@@ -47,7 +47,7 @@ finite differencing is being used.}
 
 \item{G}{List produced by \code{mgcv:::gam.setup}, containing most of what's
 needed to actually fit a GAM.}
-
+\item{start}{starting parameter values.}
 \item{...}{other arguments, typically for passing on to \code{gam.fit3} (ultimately).}
 }
 \details{ 
@@ -59,7 +59,7 @@ Wood, S.N. (2011) Fast stable restricted maximum likelihood
 and marginal likelihood estimation of semiparametric generalized linear 
 models. Journal of the Royal Statistical Society (B) 73(1):3-36
 
-\url{http://www.maths.bath.ac.uk/~sw283/}
+\url{http://www.maths.bris.ac.uk/~sw15190/}
 
 }
 \author{ Simon N. Wood \email{simon.wood@r-project.org}}

@@ -9,11 +9,11 @@ it as a formula, and interprets the smooth parts of the model formula.
 Not normally called directly.
 }
 
-\usage{interpret.gam(gf)}
+\usage{interpret.gam(gf, extra.special = NULL)}
 
 \arguments{\item{gf}{A GAM formula as supplied to \code{\link{gam}} or \code{\link{gamm}}, or a 
 list of such formulae, as supplied for some \code{\link{gam}} families.}
-
+\item{extra.special}{Name of any extra special in formula in addition to \code{s}, \code{te}, \code{ti} and \code{t2}.}
 }
 
 \value{An object of class \code{split.gam.formula} with the following items:
@@ -36,7 +36,7 @@ the options do not depend on variables which might not be available later.}
 
 \references{
 
-\url{http://www.maths.bath.ac.uk/~sw283/}
+\url{http://www.maths.bris.ac.uk/~sw15190/}
 }
 \author{ Simon N. Wood \email{simon.wood@r-project.org}}
 

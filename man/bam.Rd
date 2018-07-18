@@ -5,21 +5,24 @@
 \title{Generalized additive models for very large datasets}
 
 \description{ Fits a generalized additive model (GAM) to a very large
-data set, the term `GAM' being taken to include any quadratically penalized GLM.  
+data set, the term `GAM' being taken to include any quadratically penalized GLM (the extended families
+listed in \code{\link{family.mgcv}} can also be used).  
 The degree of smoothness of model terms is estimated as part of
 fitting. In use the function is much like \code{\link{gam}}, except that the numerical methods
-are designed for datasets containing upwards of several tens of thousands of data (see Wood, Goude and Shaw, 2014). The advantage 
+are designed for datasets containing upwards of several tens of thousands of data (see Wood, Goude and Shaw, 2015). The advantage 
 of \code{bam} is much lower memory footprint than \code{\link{gam}}, but it can also be much faster, 
 for large datasets. \code{bam} can also compute on a cluster set up by the \link[parallel]{parallel} package.
+
+An alternative fitting approach (Wood et al. 2016) is provided by the \code{discrete==TRUE} method. In this case a method based on discretization of covariate values and C code level parallelization (controlled by the \code{nthreads} argument instead of the \code{cluster} argument) is used. This extends both the data set and model size that are practical.
 
 }
 \usage{
 bam(formula,family=gaussian(),data=list(),weights=NULL,subset=NULL,
     na.action=na.omit, offset=NULL,method="fREML",control=list(),
-    scale=0,gamma=1,knots=NULL,sp=NULL,min.sp=NULL,paraPen=NULL,
-    chunk.size=10000,rho=0,AR.start=NULL,discrete=FALSE,sparse=FALSE,
-    cluster=NULL,nthreads=NA,gc.level=1,use.chol=FALSE,samfrac=1,
-    drop.unused.levels=TRUE,G=NULL,fit=TRUE,...)
+    select=FALSE,scale=0,gamma=1,knots=NULL,sp=NULL,min.sp=NULL,
+    paraPen=NULL,chunk.size=10000,rho=0,AR.start=NULL,discrete=FALSE,
+    cluster=NULL,nthreads=1,gc.level=1,use.chol=FALSE,samfrac=1,
+    coef=NULL,drop.unused.levels=TRUE,G=NULL,fit=TRUE,drop.intercept=NULL,...)
 }
 %- maybe also `usage' for other objects documented here.
 
@@ -33,8 +36,7 @@ to the right hand side to specify that the linear predictor depends on smooth fu
 \item{family}{
 This is a family object specifying the distribution and link to use in
 fitting etc. See \code{\link{glm}} and \code{\link{family}} for more
-details. A negative binomial family is provided: see \code{\link{negbin}}, but
-only the known theta case is supported by \code{bam}.
+details. The extended families listed in \code{\link{family.mgcv}} can also be used.
 } 
 
 \item{data}{ A data frame or list containing the model response variable and 
@@ -57,8 +59,8 @@ which \code{gam} is called.}
 
 \item{offset}{Can be used to supply a model offset for use in fitting. Note
 that this offset will always be completely ignored when predicting, unlike an offset 
-included in \code{formula}: this conforms to the behaviour of
-\code{lm} and \code{glm}.}
+included in \code{formula} (this used to conform to the behaviour of
+\code{lm} and \code{glm}).}
 
 
 
@@ -71,15 +73,16 @@ of the scale. \code{"ML"} and \code{"P-ML"} are similar, but using maximum likel
 \item{control}{A list of fit control parameters to replace defaults returned by 
 \code{\link{gam.control}}. Any control parameters not supplied stay at their default values.}
 
+\item{select}{Should selection penalties be added to the smooth effects, so that they can in principle be 
+penalized out of the model? See \code{gamma} to increase penalization.  Has the side effect that smooths no longer have a fixed effect component (improper prior from a Bayesian perspective) allowing REML comparison of models with the same fixed effect structure. 
+}
 
 \item{scale}{ If this is positive then it is taken as the known scale parameter. Negative signals that the 
 scale paraemter is unknown. 0 signals that the scale parameter is 1  for Poisson and binomial and unknown otherwise. 
 Note that (RE)ML methods can only work with scale parameter 1 for the Poisson and binomial cases.    
 } 
 
-\item{gamma}{It is sometimes useful to inflate the model degrees of 
-freedom in the GCV or UBRE/AIC score by a constant multiplier. This allows 
-such a multiplier to be supplied. } 
+\item{gamma}{Increase above 1 to force smoother fits. \code{gamma} is used to multiply the effective degrees of freedom in the GCV/UBRE/AIC score (so \code{log(n)/2} is BIC like). \code{n/gamma} can be viewed as an effective sample size, which allows it to play a similar role for RE/ML smoothing parameter estimation.} 
 
 
 \item{knots}{this is an optional list containing user specified knot values to be used for basis construction. 
@@ -111,18 +114,17 @@ if smooths share smoothing parameters).}
 Reset to \code{4*p} if \code{chunk.size < 4*p} where \code{p} is the number of coefficients.}
 
 \item{rho}{An AR1 error model can be used for the residuals (based on dataframe order), of Gaussian-identity 
-           link models. This is the AR1 correlation parameter.}
+           link models. This is the AR1 correlation parameter. Standardized residuals (approximately 
+           uncorrelated under correct model) returned in 
+           \code{std.rsd} if non zero. Also usable with other models when \code{discrete=TRUE}, in which case the AR model
+           is applied to the working residuals and corresponds to a GEE approximation.}
 
 \item{AR.start}{logical variable of same length as data, \code{TRUE} at first observation of an independent
 section of AR1 correlation. Very first observation in data frame does not need this. If \code{NULL} then 
 there are no breaks in AR1 correlaion.}
 
 \item{discrete}{with \code{method="fREML"} it is possible to discretize covariates for storage and efficiency reasons.
-If \code{discrete} is \code{TRUE}, a number or a vector of numbers for each smoother term, then discretization happens. If numbers are supplied they give the number of discretization bins. Experimental at present. }
-
-\item{sparse}{Deprecated. If all smooths are P-splines and all tensor products are of the form \code{te(...,bs="ps",np=FALSE)} 
-then in principle computation could be made faster using sparse matrix methods, and you could set this to \code{TRUE}. 
-In practice the speed up is disappointing, and the computation is less well conditioned than the default. See details.}
+If \code{discrete} is \code{TRUE}, a number or a vector of numbers for each smoother term, then discretization happens. If numbers are supplied they give the number of discretization bins.}
 
 \item{cluster}{\code{bam} can compute the computationally dominant QR decomposition in parallel using \link[parallel]{parLapply}
 from the \code{parallel} package, if it is supplied with a cluster on which to do this (a cluster here can be some cores of a 
@@ -130,7 +132,7 @@ single machine). See details and example code.
 }
 
 \item{nthreads}{Number of threads to use for non-cluster computation (e.g. combining results from cluster nodes).
-if \code{NA} set to \code{max(1,length(cluster))}.}
+If \code{NA} set to \code{max(1,length(cluster))}.}
 
 \item{gc.level}{to keep the memory footprint down, it helps to call the garbage collector often, but this takes 
 a substatial amount of time. Setting this to zero means that garbage collection only happens when R decides it should. Setting to 2 gives frequent garbage collection. 1 is in between.}
@@ -143,13 +145,18 @@ and then finds its Choleski decomposition, at the end. This is somewhat more eff
 \item{samfrac}{For very large sample size Generalized additive models the number of iterations needed for the model fit can 
 be reduced by first fitting a model to a random sample of the data, and using the results to supply starting values. This initial fit is run with sloppy convergence tolerances, so is typically very low cost. \code{samfrac} is the sampling fraction to use. 0.1 is often reasonable. }
 
+\item{coef}{initial values for model coefficients}
+
 \item{drop.unused.levels}{by default unused levels are dropped from factors before fitting. For some smooths 
 involving factor variables you might want to turn this off. Only do so if you know what you are doing.}
 
 \item{G}{if not \code{NULL} then this should be the object returned by a previous call to \code{bam} with 
-\code{fit=FALSE}. Causes all other arguments to be ignored except \code{chunk.size}, \code{gamma},code{nthreads}, \code{cluster}, \code{rho}, \code{gc.level}, \code{samfrac}, \code{use.chol} and \code{method}.}
+\code{fit=FALSE}. Causes all other arguments to be ignored except \code{chunk.size}, \code{gamma},\code{nthreads}, \code{cluster}, \code{rho}, \code{gc.level}, \code{samfrac}, \code{use.chol} and \code{method}.}
 
 \item{fit}{if \code{FALSE} then the model is set up for fitting but not estimated, and an object is returned, suitable for passing as the \code{G} argument to \code{bam}.}
+
+\item{drop.intercept}{Set to \code{TRUE} to force the model to really not have the a constant in the parametric model part,
+even with factor variables present.}
 
 \item{...}{further arguments for 
 passing on e.g. to \code{gam.fit} (such as \code{mustart}). }
@@ -161,8 +168,7 @@ An object of class \code{"gam"} as described in \code{\link{gamObject}}.
 }
 
 
-\details{ \code{bam} operates by first setting up the basis characteristics for the smooths, using a representative subsample 
-of the data. Then the model matrix is constructed in blocks using \code{\link{predict.gam}}. For each block the factor R,
+\details{ When \code{discrete=FALSE}, \code{bam} operates by first setting up the basis characteristics for the smooths, using a representative subsample of the data. Then the model matrix is constructed in blocks using \code{\link{predict.gam}}. For each block the factor R,
 from the QR decomposition of the whole model matrix is updated, along with Q'y. and the sum of squares of y. At the end of 
 block processing, fitting takes place, without the need to ever form the whole model matrix. 
 
@@ -171,7 +177,7 @@ Smoothness selection is performed on the working model at each stage (performanc
 small memory footprint. This is trivial to justify in the case of GCV or Cp/UBRE/AIC based model selection, and 
 for REML/ML is justified via the asymptotic multivariate normality of Q'z where z is the IRLS pseudodata. 
 
-For full method details see Wood, Goude and Shaw (2014).
+For full method details see Wood, Goude and Shaw (2015).
 
 Note that POI is not as stable as the default nested iteration used with \code{\link{gam}}, but that for very large, information rich,
 datasets, this is unlikely to matter much. 
@@ -181,21 +187,20 @@ can be used in the 1D case, and tensor product smooths (\code{te}) are typically
 
 If \code{cluster} is provided as a cluster set up using \code{\link[parallel]{makeCluster}} (or \code{\link[parallel]{makeForkCluster}}) from the \code{parallel} package, then the rate limiting QR decomposition of the model matrix is performed in parallel using this cluster. Note that the speed ups are often not that great. On a multi-core machine it is usually best to set the cluster size to the number of physical cores, which is often less than what is reported by \code{\link[parallel]{detectCores}}. Using more than the number of physical cores can result in no speed up at all (or even a slow down). Note that a highly parallel BLAS may negate all advantage from using a cluster of cores. Computing in parallel of course requires more memory than computing in series. See examples.
 
-If the deprecated argument \code{sparse=TRUE} then QR updating is replaced by an alternative scheme, in which the model matrix is stored whole
- as a sparse matrix. This only makes sense if all smooths are P-splines and all tensor products are of the 
-form \code{te(...,bs="ps",np=FALSE)}, but no check is made. The computations are then based on the Choleski decomposition of 
-the crossproduct of the sparse model matrix. Although this crossproduct is nearly dense, sparsity should make its 
-formation efficient, which is useful as it is the leading order term in the operations count. However there is no benefit 
-in using sparse methods to form the Choleski decomposition, given that the crossproduct is dense. 
-In practice the sparse matrix handling overheads mean that modest or no speed ups are produced 
-by this approach, while the computation is less stable than the default, and the memory footprint often higher 
-(but please let the author know if you find an example where the speedup is really worthwhile). 
+When \code{discrete=TRUE} the covariate data are first discretized. Discretization takes place on a smooth by smooth basis, or in the case of tensor product smooths (or any smooth that can be represented as such, such as random effects), separately for each marginal smooth. The required spline bases are then evaluated at the discrete values, and stored, along with index vectors indicating which original observation they relate to. Fitting is by a version of performance oriented iteration/PQL using REML smoothing parameter selection on each iterative working model (as for the default method). The iteration is based on the derivatives of the REML score, without computing the score itself, allowing the expensive computations to be reduced to one parallel block Cholesky decomposition per iteration (plus two basic operations of equal cost, but easily parallelized). Unlike standard POI/PQL, only one step of the smoothing parameter update for the working model is taken at each step (rather than iterating to the optimal set of smoothing parameters for each working model). At each step a weighted model matrix crossproduct of the model matrix is required - this is efficiently computed from the pre-computed basis functions evaluated at the discretized covariate values. Efficient computation with tensor product terms means that some terms within a tensor product may be re-ordered for maximum efficiency. Parallel computation is controlled using the \code{nthreads} argument. For this method no cluster computation is used, and the \code{parallel} package is not required.
+
+\code{discrete=TRUE} will often produce identical results to the methods without discretization, since covariates often only take a modest number of discrete values anyway, so no approximation at all is involved in the discretization process. Even when some approximation is involved, the differences are often very small as the algorithms discretize marginally whenever possible. For example each margin of a tensor product smooth is discretized separately, rather than discretizing onto a grid of covariate values (for an equivalent isotropic smooth we would have to discretize onto a grid). The marginal approach allows quite fine scale discretization and hence very low approximation error. Note that when using the smooth \code{id} mechanism to link smoothing parameters, the discrete method cannot force the linked bases to be identical, so some differences to the none discrete methods will be noticable.   
+
+The extended families given in \code{\link{family.mgcv}} can also be used. The extra parameters of these are estimated by maximizing the penalized likelihood, rather than the restricted marginal likelihood as in \code{\link{gam}}. So estimates may differ slightly from those returned by \code{\link{gam}}. Estimation is accomplished by a Newton iteration to find the extra parameters (e.g. the theta parameter of the negative binomial or the degrees of freedom and scale of the scaled t) maximizing the log likelihood given the model coefficients at each iteration of the fitting procedure. 
 
 }
 
 
 \references{
-Wood, S.N., Goude, Y. & Shaw S. (2015) Generalized additive models for large datasets. Journal of the Royal Statistical Society, Series C 64(1): 139-155.  
+Wood, S.N., Goude, Y. & Shaw S. (2015) Generalized additive models for large datasets. Journal of the Royal Statistical Society, Series C 64(1): 139-155.
+
+Wood, S.N., Li, Z., Shaddick, G. & Augustin N.H. (2017) Generalized additive models for gigadata: modelling the UK black smoke network daily data. Journal of the American Statistical Association.
+
 }
 
 \author{ Simon N. Wood \email{simon.wood@r-project.org}
@@ -207,16 +212,15 @@ Wood, S.N., Goude, Y. & Shaw S. (2015) Generalized additive models for large dat
 
 The routine will be slow if the default \code{"tp"} basis is used. 
 
-You must have more unique combinations of covariates than the model has total
+Unless discrete=TRUE, you must have more unique combinations of covariates than the model has total
 parameters. (Total parameters is sum of basis dimensions plus sum of non-spline 
 terms less the number of spline terms). 
 
 This routine is less stable than `gam' for the same dataset.
 
+With \code{discrete=TRUE}, \code{te} terms are efficiently computed, but \code{t2} are not.
+
 The negbin family is only supported for the *known theta* case.
-
-AIC computation does not currently take account of an AR1 model, if used.
-
 } 
 
 \seealso{\code{\link{mgcv.parallel}}, 
@@ -232,9 +236,7 @@ AIC computation does not currently take account of an AR1 model, if used.
 library(mgcv)
 ## See help("mgcv-parallel") for using bam in parallel
 
-## Some examples are marked 'Not run' purely to keep 
-## checking load on CRAN down. Sample sizes are small for 
-## the same reason.
+## Sample sizes are small for fast run times.
 
 set.seed(3)
 dat <- gamSim(1,n=25000,dist="normal",scale=20)
@@ -245,7 +247,7 @@ summary(b)
 plot(b,pages=1,rug=FALSE)  ## plot smooths, but not rug
 plot(b,pages=1,rug=FALSE,seWithMean=TRUE) ## `with intercept' CIs
 
-\dontrun{ 
+\donttest{ 
 ba <- bam(y ~ s(x0,bs=bs,k=k)+s(x1,bs=bs,k=k)+s(x2,bs=bs,k=k)+
             s(x3,bs=bs,k=k),data=dat,method="GCV.Cp") ## use GCV
 summary(ba)}
@@ -259,14 +261,14 @@ system.time(b1 <- bam(y ~ s(x0,bs=bs)+s(x1,bs=bs)+s(x2,bs=bs,k=k),
             data=dat,family=poisson()))
 b1
 
+## Similar using faster discrete method...
 
-## Sparse smoother example (deprecated)...
-\dontrun{
-dat <- gamSim(1,n=10000,dist="poisson",scale=.1)
-system.time( b3 <- bam(y ~ te(x0,x1,bs="ps",k=10,np=FALSE)+
-             s(x2,bs="ps",k=30)+s(x3,bs="ps",k=30),data=dat,
-             method="REML",family=poisson(),sparse=TRUE))
-b3}
+\donttest{ 
+system.time(b2 <- bam(y ~ s(x0,bs=bs,k=k)+s(x1,bs=bs,k=k)+s(x2,bs=bs,k=k)+
+            s(x3,bs=bs,k=k),data=dat,family=poisson(),discrete=TRUE))
+b2
+}
+
 
 }
 

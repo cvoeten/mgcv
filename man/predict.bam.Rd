@@ -17,8 +17,8 @@ for quantities derived from the model (e.g. derivatives of smooths), and for loo
 
 \usage{
 \method{predict}{bam}(object,newdata,type="link",se.fit=FALSE,terms=NULL,
-        block.size=50000,newdata.guaranteed=FALSE,na.action=na.pass,
-        cluster=NULL,...)
+        exclude=NULL,block.size=50000,newdata.guaranteed=FALSE,
+        na.action=na.pass,cluster=NULL,discrete=TRUE,n.threads=1,...)
 }
 %- maybe also `usage' for other objects documented here.
 \arguments{ 
@@ -50,8 +50,12 @@ outside \code{R} (see example code, below). }
 
 \item{se.fit}{ when this is TRUE (not default) standard error estimates are returned for each prediction.}
 
-\item{terms}{if \code{type=="terms"} then only results for the terms named in this array
-will be returned.}
+\item{terms}{if \code{type=="terms"} or \code{type="iterms"} then only results for the terms (smooth or parametric) named in this array will be returned. Otherwise any smooth terms not named in this array will be set to zero. If \code{NULL} then all terms are included.}
+
+\item{exclude}{if \code{type=="terms"} or \code{type="iterms"} then terms (smooth or parametric) named in this array
+will not be returned. Otherwise any smooth terms named in this array will be set to zero. 
+If \code{NULL} then no terms are excluded.}
+
 
 \item{block.size}{maximum number of predictions to process per call to underlying
 code: larger is quicker, but more memory intensive.}
@@ -73,6 +77,10 @@ determined from \code{object$na.action}.}
 from the \code{parallel} package, if it is supplied with a cluster on which to do this (a cluster here can be some cores of a 
 single machine). See details and example code for \code{\link{bam}}. 
 }
+
+\item{discrete}{if \code{TRUE} then discrete prediction methods used with model fitted by discrete methods. \code{FALSE} for regular prediction.}
+
+\item{n.threads}{if \code{se.fit=TRUE} and discrete prediction is used then parallel computation can be used to speed up se calcualtion. This specifies number of htreads to use.}
 
 \item{...}{ other arguments.}
 
@@ -127,7 +135,10 @@ Chambers and Hastie (1993) (but is not a clone).
 
 }
 
-
+\section{WARNING }{
+Predictions are likely to be incorrect if data dependent transformations of the covariates
+are used within calls to smooths. See examples in \code{\link{predict.gam}}.
+}
 
 \seealso{  \code{\link{bam}}, \code{\link{predict.gam}}}
 

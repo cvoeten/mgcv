@@ -62,8 +62,10 @@ the elements \code{polys}, \code{nb} or \code{penalty}.
       }
 \item{nb}{is a named list defining the neighbourhood structure. \code{names(nb)} must correspond to the 
           levels of the covariate of the smooth (i.e. the area labels), but can be in any order. \code{nb[[i]]} 
-          is a vector indexing the neighbours of the ith area. All indices are relative to \code{nb} itself, but 
-          can be translated using \code{names(nb)}. 
+          is a numeric vector indexing the neighbours of the ith area.
+	  All indices are relative to \code{nb} itself, but can be translated using \code{names(nb)}. See example code.
+	  As an alternative each \code{nb[[i]]} can be an array of the names of the neighbours, but these will be
+	  converted to the arrays of numeric indices internally. 
 
           If no \code{penalty} is provided then it is computed automatically from this list. The ith row of 
           the penalty matrix will be zero everwhere, except in the ith column, which will contain the number 
@@ -76,7 +78,7 @@ Its row and column names should correspond to the levels of the covariate.}
 
 If no basis dimension is supplied then the constructor produces a full rank MRF, with a coefficient for each 
 geographic area. Otherwise a low rank approximation is obtained based on truncation of the parameterization given in
-Wood (2006) Section 4.10.4. 
+Wood (2017) Section 5.4.2. See Wood (2017, section 5.8.1). 
 
 Note that smooths of this class have a built in plot method, and that the utility function \code{\link{in.out}} 
 can be useful for working with discrete area data. The plot method has two schemes, \code{scheme==0} is colour, 
@@ -90,7 +92,7 @@ coefficients is less than the number of observations.
 }
 
 \references{
-Wood S.N. (2006) Generalized additive models: an introduction with R. CRC.
+Wood S.N. (2017) Generalized additive models: an introduction with R (2nd edition). CRC.
 }
 
 \author{ Simon N. Wood \email{simon.wood@r-project.org} and Thomas Kneib
@@ -122,6 +124,22 @@ fv <- fitted(b)
 names(fv) <- as.character(columb$district)
 polys.plot(columb.polys,fv)
 
+## Examine an example neighbourhood list - this one auto-generated from
+## 'polys' above.
+
+nb <- b$smooth[[1]]$xt$nb 
+head(nb) 
+names(nb) ## these have to match the factor levels of the smooth
+## look at the indices of the neighbours of the first entry,
+## named '0'...
+nb[['0']] ## by name
+nb[[1]]   ## same by index 
+## ... and get the names of these neighbours from their indices...
+names(nb)[nb[['0']]]
+b1 <- gam(crime ~ s(district,bs="mrf",k=20,xt=list(nb=nb))+s(income),
+         data=columb,method="REML")
+b1 ## fit unchanged
+plot(b1) ## but now there is no information with which to plot the mrf
 }
 \keyword{models} \keyword{regression}%-- one or more ..
 

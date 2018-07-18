@@ -3,7 +3,7 @@
 \alias{ordered.categorical}
 %- Also NEED an `\alias' for EACH other topic documented here.
 \title{GAM ordered categorical family}
-\description{Family for use with \code{\link{gam}}, implementing regression for ordered categorical data.
+\description{Family for use with \code{\link{gam}} or \code{\link{bam}}, implementing regression for ordered categorical data.
 A linear predictor provides the expected value of a latent variable following a logistic distribution. The 
 probability of this latent variable lying between certain cut-points provides the probability of the ordered 
 categorical variable being of the corresponding category. The cut-points are estimated along side the model 
@@ -36,6 +36,12 @@ Rather than remove the intercept, \code{ocat} simply sets the first cut point to
 \author{ Simon N. Wood \email{simon.wood@r-project.org}
 }
 
+\references{
+Wood, S.N., N. Pya and B. Saefken (2016), Smoothing parameter and
+model selection for general smooth models.
+Journal of the American Statistical Association 111, 1548-1575
+\url{http://dx.doi.org/10.1080/01621459.2016.1180986}
+}
 
 
 \examples{

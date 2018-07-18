@@ -16,7 +16,7 @@ Package \code{gamm4} is an alternative, which allows AIC type model selection fo
 of semi-parametric modelling: the idea is that we estimate the form of the function from data
 without assuming that it has a particular simple functional form. Of course for practical computation
 the functions do have underlying mathematical representations, but they are not very helpful, when written 
-down. If you do need the functional forms then see chapter 4 of Wood (2006). However for most purposes it 
+down. If you do need the functional forms then see chapter 5 of Wood (2017). However for most purposes it 
 is better to use \code{\link{predict.gam}} to evaluate the function for whatever argument values you need. 
 If derivatives are required then the simplest approach is to use finite differencing (which also allows 
 SEs etc to be calculated).
@@ -25,11 +25,13 @@ SEs etc to be calculated).
 
 \item \bold{How do I test whether a smooth is significantly different from a straight line}. See \code{\link{tprs}} and the example therein.
 
+\item \bold{An example from an mgcv helpfile gives an error - is this a bug?} It might be, but first please check that the version of mgcv you have loaded into R corresponds to the version from which the helpfile came. Many such problems are caused by trying to run code only supported in a later mgcv version in an earlier version. Another possibility is that you have an object loaded whose name clashes with an mgcv function (for example you are trying to use the mgcv \code{multinom} function, but have another object called \code{multinom} loaded.)
+
 \item \bold{Some code from Wood (2006) causes an error: why?} The book was written using mgcv version 1.3. To allow for 
 REML estimation of smoothing parameters in versions 1.5, some changes had to be made to the syntax. In particular the 
 function \code{gam.method} no longer exists. The smoothness selection method (GCV, REML etc) is now controlled by the
 \code{method} argument to \code{gam} while the optimizer is selected using the \code{optimizer} argument. 
-See \code{\link{gam}} and \url{http://www.maths.bath.ac.uk/~sw283/igam/index.html} for details.
+See \code{\link{gam}} and \url{http://www.maths.bris.ac.uk/~sw15190/igam/index.html} for details.
 
 \item \bold{Why is a model object saved under a previous mgcv version not usable with the current mgcv version?} 
 I'm sorry about this issue, I know it's really annoying. Here's my defence. 
@@ -73,6 +75,9 @@ guaranteed for small noisy datasets with large numbers of predictors.
 \references{
 
 Wood S.N. (2006) Generalized Additive Models: An Introduction with R. Chapman
+and Hall/CRC Press.
+
+Wood S.N. (2017) Generalized Additive Models: An Introduction with R (2nd edition). Chapman
 and Hall/CRC Press.
 }
 

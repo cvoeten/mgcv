@@ -4,7 +4,7 @@
 \description{ Takes a fitted \code{gam} object produced by \code{gam()} and produces some diagnostic information
 about the fitting procedure and results. The default is to produce 4 residual
 plots, some information about the convergence of the smoothness selection optimization, and to run 
-diagnostic tests of whether the basis dimension choises are adequate. 
+diagnostic tests of whether the basis dimension choises are adequate. Care should be taken in interpreting the results when applied to \code{gam} objects returned by \code{\link{gamm}}.
 }
 \usage{
 gam.check(b, old.style=FALSE,
@@ -39,8 +39,8 @@ for a term is too low.
 Usually the 4 plots are various residual plots. For the default optimization methods the convergence information is summarized in a readable way, but for other optimization methods, whatever is returned by way of
 convergence diagnostics is simply printed. 
 
-The test of whether the basis dimension for a smooth is adequate is based on computing an estimate of the residual variance 
-based on differencing residuals that are near neighbours according to the (numeric) covariates of the smooth. This estimate divided by the residual variance is the \code{k-index} reported. The further below 1 this is, the more likely it is that there is missed pattern left in the residuals. The \code{p-value} is computed by simulation: the residuals are randomly re-shuffled \code{k.rep} times to obtain the null distribution of the differencing variance estimator, if there is no pattern in the residuals. For models fitted to more than \code{k.sample} data, the tests are based of \code{k.sample} randomly sampled data. Low p-values may indicate that the basis dimension, \code{k}, has been set too low, especially if the reported \code{edf} is close to \code{k\'}, the maximum possible EDF for the term. Note the disconcerting fact that if the test statistic itself is based on random resampling and the null is true, then the associated p-values will of course vary widely from one replicate to the next. Currently smooths of factor variables are not supported and will give an \code{NA} p-value.
+The test of whether the basis dimension for a smooth is adequate (Wood, 2017, section 5.9) is based on computing an estimate of the residual variance 
+based on differencing residuals that are near neighbours according to the (numeric) covariates of the smooth. This estimate divided by the residual variance is the \code{k-index} reported. The further below 1 this is, the more likely it is that there is missed pattern left in the residuals. The \code{p-value} is computed by simulation: the residuals are randomly re-shuffled \code{k.rep} times to obtain the null distribution of the differencing variance estimator, if there is no pattern in the residuals. For models fitted to more than \code{k.sample} data, the tests are based of \code{k.sample} randomly sampled data. Low p-values may indicate that the basis dimension, \code{k}, has been set too low, especially if the reported \code{edf} is close to k', the maximum possible EDF for the term. Note the disconcerting fact that if the test statistic itself is based on random resampling and the null is true, then the associated p-values will of course vary widely from one replicate to the next. Currently smooths of factor variables are not supported and will give an \code{NA} p-value.
 
  Doubling a suspect \code{k} and re-fitting is sensible: if the reported \code{edf} increases substantially then you may have been missing something in the first fit. Of course p-values can be low for  reasons other than a too low \code{k}. See \code{\link{choose.k}} for fuller discussion.
 
@@ -50,6 +50,7 @@ If this looks odd then investigate further using \code{\link{qq.gam}}. Note that
 information useful for model checking (it is necessary to find some way of aggregating them first), so the QQ plot is unlikely 
 to be useful in this case.
 
+Take care when interpreting results from applying this function to a model fitted using \code{\link{gamm}}. In this case the returned \code{gam} object is based on the working model used for estimation, and will treat all the random effects as part of the error. This means that the residuals extracted from the \code{gam} object are not standardized for the family used or for the random effects or correlation structure. Usually it is necessary to produce your own residual checks based on consideration of the model structure you have used.  
 }
 
 \references{
@@ -57,11 +58,11 @@ to be useful in this case.
 N.H. Augustin, E-A Sauleaub, S.N. Wood (2012) On quantile quantile plots for generalized linear models.
 Computational Statistics & Data Analysis. 56(8), 2404-3409.
 
-Wood S.N. (2006) Generalized Additive Models: An Introduction with R. Chapman
+Wood S.N. (2017) Generalized Additive Models: An Introduction with R (2nd edition). Chapman
 and Hall/CRC Press.
 
 
-\url{http://www.maths.bath.ac.uk/~sw283/}
+\url{http://www.maths.bris.ac.uk/~sw15190/}
 
 }
 \author{ Simon N. Wood \email{simon.wood@r-project.org}}

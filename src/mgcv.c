@@ -34,7 +34,6 @@ USA. */
 
 #define round(a) ((a)-floor(a) <0.5 ? (int)floor(a):(int) floor(a)+1)
 
-
 /* The following are some rather ancient routines used to set up an example
    additive model using regression (cubic) splines, via RGAMsetup(). */
 void RUnpackSarray(int m,matrix *S,double *RS)
@@ -184,20 +183,20 @@ void getFS(double *x,int n,double *S,double *F) {
   double *D,*ldB,*sdB,*h,*Di,*Di1,*Di2,*Fp,*Sp,a,b,c;
   int i,j,n1,n2;
   /* create knot spacing vector h */
-  h = (double *)R_chk_calloc((size_t)(n-1),sizeof(double));
+  h = (double *)CALLOC((size_t)(n-1),sizeof(double));
   for (i=1;i<n;i++) h[i-1] = x[i]-x[i-1];
 
   /* create n-2 by n matrix D: D[i,i] = 1/h[i], D[i,i+1] = -1/h[i]-1/h[i+1]
      D[i,i+2] = 1/h[i+1], for i=0..(n-3). D is n-2 by n. */
-  D = (double *)R_chk_calloc((size_t)(n*(n-2)),sizeof(double));
+  D = (double *)CALLOC((size_t)(n*(n-2)),sizeof(double));
   n1 = n-1;n2=n-2;
   for (Di=D,Di1=D+n2,Di2=Di1+n2,i=0;i<n2;i++,Di+=n1,Di1+=n1,Di2+=n1) {
     *Di = 1/h[i];*Di2 = 1/h[i+1];*Di1 = - *Di - *Di2;
   }
   /* create leading diagonal of B*/
-  ldB = (double *)R_chk_calloc((size_t)(n2),sizeof(double));
+  ldB = (double *)CALLOC((size_t)(n2),sizeof(double));
   for (i=0;i<n2;i++) ldB[i] = (h[i]+h[i+1])/3;
-  sdB = (double *)R_chk_calloc((size_t)(n2-1),sizeof(double));
+  sdB = (double *)CALLOC((size_t)(n2-1),sizeof(double));
   for (i=1;i<n2;i++) sdB[i-1] = h[i]/6;
   /* Now find B^{-1}D using LAPACK routine DPTSV (result in D) */
   F77_CALL(dptsv)(&n2,&n,ldB,sdB,D,&n2,&i);
@@ -234,7 +233,7 @@ void getFS(double *x,int n,double *S,double *F) {
   a = 1/h[j]; /* row n-1 */
   for (Sp=S+n1,Di=D+n2-1,i=0;i<n;i++,Sp+=n,Di+=n2) *Sp = *Di * a;
 
-  R_chk_free(ldB);R_chk_free(sdB);R_chk_free(h);R_chk_free(D);
+  FREE(ldB);FREE(sdB);FREE(h);FREE(D);
 } /* end of getFS*/
 
 
@@ -259,7 +258,8 @@ void crspl(double *x,int *n,double *xk, int *nk,double *X,double *S, double *F,i
       while (xi > xk[j+1] && j < *nk-2) j++;
       /* next line should not be needed, except under dodgy use of 
          fpu registers during optimization... */
-      if (j<0) j=0;if (j > *nk-2) j = *nk - 2; 
+      if (j<0) j=0;
+      if (j > *nk-2) j = *nk - 2; 
       /* now xk[j] <= x[i] <= xk[j+1] */ 
     } else { /* bisection search required */ 
       j=0;jup=*nk-1;
@@ -325,13 +325,13 @@ void MinimumSeparation(double *x,int *n, int *d,double *t,int *m,double *dist) {
   int one=1,*ni;
   kdtree_type kd;
   kd_tree(t,m,d,&kd); /* build kd tree for target points */
-  ni = (int *)R_chk_calloc((size_t)*n,sizeof(int));
+  ni = (int *)CALLOC((size_t)*n,sizeof(int));
   k_newn_work(x,kd,t,dist,ni,n,m,d,&one);
   // for (i=0;i<*n;i++) {
   //  k = closest(&kd,t,x + i * *d,*m,&j,-1); /* index of nearest neighbour of x[i,] */
   //  dist[i] = xidist(x + i * *d,t,k,*d, *m); /* distance to this nearest neighbour */
   //}
-  R_chk_free(ni);
+  FREE(ni);
   free_kdtree(kd);
 }
 
@@ -374,7 +374,7 @@ void RuniqueCombs(double *X,int *ind,int *r, int *c)
   Xd.c--; /* hide index array  */
   RArrayFromMatrix(X,Xd.r,&Xd);  /* NOTE: not sure about rows here!!!! */
   *r = (int)Xd.r; 
-  freemat(Xd);R_chk_free(ind1);
+  freemat(Xd);FREE(ind1);
 
 }
 
@@ -410,7 +410,7 @@ void RMonoCon(double *Ad,double *bd,double *xd,int *control,double *lower,double
 
 
 void  RPCLS(double *Xd,double *pd,double *yd, double *wd,double *Aind,double *bd,
-            double *Afd,double *Hd,double *Sd,
+            double *Afd,double *Sd,
             int *off,int *dim,double *theta, int *m,int *nar)
 
 /* Interface routine for PCLS the constrained penalized weighted least squares solver.
@@ -419,7 +419,7 @@ void  RPCLS(double *Xd,double *pd,double *yd, double *wd,double *Aind,double *bd
    np=nar[1] - number of parameters
    nai=nar[2] - number of inequality constraints
    naf=nar[3] - number of fixed constraints
-   getH=nar[4] - 0 for no hat matrix, 1 to produce one. 
+  
    
    Problem to be solved is:
 
@@ -438,7 +438,7 @@ void  RPCLS(double *Xd,double *pd,double *yd, double *wd,double *Aind,double *bd
    on exit p contains the best fit parameter vector. 
 
 */
-{ matrix y,X,p,w,Ain,Af,b,H,*S;
+{ matrix y,X,p,w,Ain,Af,b,*S;
   int n,np,i,*active;
  
   np=nar[1];n=nar[0];
@@ -451,29 +451,29 @@ void  RPCLS(double *Xd,double *pd,double *yd, double *wd,double *Aind,double *bd
   if (nar[3]>0) Af=Rmatrix(Afd,(long)nar[3],(long)np); else Af.r=0L;
   if (nar[2]>0) b=Rmatrix(bd,(long)nar[2],1L);else b.r=0L;
  
-  if (*m) S=(matrix *)R_chk_calloc((size_t) *m,sizeof(matrix));
-  else S=&H; /* avoid spurious compiler warning */
+  if (*m) S=(matrix *)CALLOC((size_t) *m,sizeof(matrix));
+  else S=NULL; /* avoid spurious compiler warning */
   for (i=0;i< *m;i++) S[i]=initmat((long)dim[i],(long)dim[i]);
   RUnpackSarray(*m,S,Sd);
   
-  if (nar[4]) H=initmat(y.r,y.r); else H.r=H.c=0L;
-  active=(int *)R_chk_calloc((size_t)(p.r+1),sizeof(int)); /* array for active constraints at best fit active[0] will be  number of them */
+  //if (nar[4]) H=initmat(y.r,y.r); else H.r=H.c=0L;
+  active=(int *)CALLOC((size_t)(p.r+1),sizeof(int)); /* array for active constraints at best fit active[0] will be  number of them */
   /* call routine that actually does the work */
  
-  PCLS(&X,&p,&y,&w,&Ain,&b,&Af,&H,S,off,theta,*m,active);
+  PCLS(&X,&p,&y,&w,&Ain,&b,&Af,S,off,theta,*m,active);
 
   /* copy results back into R arrays */ 
   for (i=0;i<p.r;i++) pd[i]=p.V[i];
  
-  if (H.r) RArrayFromMatrix(Hd,H.r,&H);
+  //if (H.r) RArrayFromMatrix(Hd,H.r,&H);
   /* clear up .... */
-  R_chk_free(active);
+  FREE(active);
  
   for (i=0;i< *m;i++) freemat(S[i]);
-  if (*m) R_chk_free(S);
+  if (*m) FREE(S);
  
   freemat(X);freemat(p);freemat(y);freemat(w);
-  if (H.r) freemat(H);
+  //if (H.r) freemat(H);
   if (Ain.r) freemat(Ain);
   if (Af.r) freemat(Af);
   if (b.r) freemat(b);

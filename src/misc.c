@@ -129,9 +129,9 @@ double *forward_buf(double *buf,int *jal,int update)
 /* extend buffer forward 1000 */
 { double *buf2,*p,*p1,*p2;
   int n=1000;
-  buf2 = (double *)R_chk_calloc((size_t)(*jal+n),sizeof(double));
+  buf2 = (double *)CALLOC((size_t)(*jal+n),sizeof(double));
   for (p=buf,p1=buf + *jal,p2=buf2;p<p1;p++,p2++) *p2 = *p;
-  R_chk_free(buf);
+  FREE(buf);
   if (update) *jal += n;
   return(buf2);
 }
@@ -143,7 +143,7 @@ double *backward_buf(double *buf,int *jal,int *j0,int *j_lo,int *j_hi,int update
   double *buf2,*p,*p1,*p2;
   if (n > *j0-1) n = *j0 - 1; /* only extend back to j=1 */
   if (n==0) return(buf);
-  buf2 = (double *)R_chk_calloc((size_t)(*jal+n),sizeof(double));
+  buf2 = (double *)CALLOC((size_t)(*jal+n),sizeof(double));
   for (p=buf,p1=buf + *jal,p2=buf2 + n;p<p1;p++,p2++) *p2 = *p;  
   if (update) {
     *jal += n; /* number of buffer locations allocated */
@@ -151,7 +151,7 @@ double *backward_buf(double *buf,int *jal,int *j0,int *j_lo,int *j_hi,int update
     *j_hi += n;  /* end of initialized elements within buffer */
     *j0 -= n; /* j0 is the true j corresponding to buffer element 0 */
   }
-  R_chk_free(buf);
+  FREE(buf);
   return(buf2);
 } /* backward_buf */
 
@@ -177,8 +177,6 @@ void tweedious(double *w,double *w1,double *w2,double *w1p,double *w2p,
    Extensive use is made of 
         log { sum_j exp(x_j)} = log { sum_j exp(x_j-x_max) } + x_max
    digamma and trigamma functions are from Rmath.h
-
-
 
    NOTE: still some redundancy for readability 
  
@@ -221,9 +219,9 @@ void tweedious(double *w,double *w1,double *w2,double *w1p,double *w2p,
   /* initially establish the min and max y values, and hence the initial buffer range,
      at the same time produce the alpha log(y) log(y)/(1-p)^2 and log(y)/(1-p)^3 vectors. */ 
   
-  alogy = (double *)R_chk_calloc((size_t)*n,sizeof(double));
-  logy1p2 = (double *)R_chk_calloc((size_t)*n,sizeof(double));
-  logy1p3 = (double *)R_chk_calloc((size_t)*n,sizeof(double));
+  alogy = (double *)CALLOC((size_t)*n,sizeof(double));
+  logy1p2 = (double *)CALLOC((size_t)*n,sizeof(double));
+  logy1p3 = (double *)CALLOC((size_t)*n,sizeof(double));
 
   ymax = ymin = *y;
   *alogy = alpha * log(*y);
@@ -254,20 +252,20 @@ void tweedious(double *w,double *w1,double *w2,double *w1p,double *w2p,
   /* prepare, up front, everything needed to form log W_j etc. except for the part depending on y[i]... */
 
   /* evaluation... */
-  wb = (double *)R_chk_calloc((size_t)jal,sizeof(double)); /* add -j*alogy[i] to get logW_j, for y[i] */
+  wb = (double *)CALLOC((size_t)jal,sizeof(double)); /* add -j*alogy[i] to get logW_j, for y[i] */
   /* first deriv wrt phi... */
-  wb1 = (double *)R_chk_calloc((size_t)jal,sizeof(double)); /* add -j*alogy[i] to get logW_j', for y[i] */
+  wb1 = (double *)CALLOC((size_t)jal,sizeof(double)); /* add -j*alogy[i] to get logW_j', for y[i] */
   /* second deriv wrt phi... */
-  // wb2 = (double *)R_chk_calloc((size_t)jal,sizeof(double)); /* add -j*alogy[i] to get logW_j'', for y[i] */
+  // wb2 = (double *)CALLOC((size_t)jal,sizeof(double)); /* add -j*alogy[i] to get logW_j'', for y[i] */
   /* ... note that in the above it's log of derivative, not derivative of log, but in the 
     following it's the derivative of the log... */
 
   /* first deriv wrt p... */
-  wp1 = (double *)R_chk_calloc((size_t)jal,sizeof(double));
+  wp1 = (double *)CALLOC((size_t)jal,sizeof(double));
   /* second deriv wrt p... */
-  wp2 = (double *)R_chk_calloc((size_t)jal,sizeof(double));
+  wp2 = (double *)CALLOC((size_t)jal,sizeof(double));
   /* second deriv wrt p and phi... */
-  wpp = (double *)R_chk_calloc((size_t)jal,sizeof(double));
+  wpp = (double *)CALLOC((size_t)jal,sizeof(double));
 
   for (jb=j_lo,j=j_lo+j0;jb <= j_hi;jb++,j++) { /* jb is in buffer index, j is true index */ 
     wb[jb] = j * w_base - lgamma((double)j+1) - lgamma(-j * alpha);
@@ -479,9 +477,151 @@ void tweedious(double *w,double *w1,double *w2,double *w1p,double *w2p,
     w1p[i] =  wdlogwdp/wi;
 
   } /* end of looping through y */
-  R_chk_free(alogy);R_chk_free(wb);R_chk_free(wb1);//R_chk_free(wb2);
-  R_chk_free(logy1p2);R_chk_free(logy1p3);R_chk_free(wp1);R_chk_free(wp2);R_chk_free(wpp);
+  FREE(alogy);FREE(wb);FREE(wb1);//FREE(wb2);
+  FREE(logy1p2);FREE(logy1p3);FREE(wp1);FREE(wp2);FREE(wpp);
 } /* tweedious */
+
+
+void tweedious2(double *w,double *w1,double *w2,double *w1p,double *w2p,
+	       double *w2pp,double *y,double *eps,int *n,
+               double *th,double *rho,double *a, double *b)
+/* Routine to perform tedious series summation needed for Tweedie distribution
+   evaluation, following Dunn & Smyth (2005) Statistics and Computing 15:267-280.
+   Notation as in that paper. For 
+   
+   log W returned in w. (where W means sum_j W_j)
+   d logW / drho in w1, 
+   d2 logW / d rho2 in w2.
+   d logW / dth in w1p
+   d2 logW / dth2 in w2p
+   d2 logW / dth drho in W2pp
+
+   rho=log(phi), and th defines p = (a + b * exp(th))/(exp(th)+1). 
+   note, 1<a<b<2 (all strict) 
+
+   The somewhat involved approach is all about avoiding overflow or underflow. 
+   Extensive use is made of 
+        log { sum_j exp(x_j)} = log { sum_j exp(x_j-x_max) } + x_max
+   digamma and trigamma functions are from Rmath.h
+
+   NOTE: still some redundancy for readability 
+ 
+*/
+{ int j_max,i,j,ok,incr;
+  double x,x1,x2,xx,alpha,alogy,lgammaj1,
+    wbj,wb1j,wp1jb,wp2jb,wppjb,
+    wp1j,wp2j,wppj,dpth1,dpth2,
+    w_base,wp_base,wp2_base,wj_scaled,wdlogwdp,
+    wdW2d2W,dWpp,exp_th,
+    wmax,wmin,
+    wi,w1i,w2i,
+    log_eps,wj,w1j,jalogy,onep,onep2,twop,logy1p2,logy1p3,p,phi;
+
+  log_eps = log(*eps);
+
+  for (i=0;i<*n;i++) { /* loop through y */
+    phi = exp(rho[i]);
+    if (th[i]>0) { 
+        exp_th =  exp(-th[i]);
+        x = 1 + exp_th;p = (*b + *a * exp_th)/x;
+        x1 = x*x;dpth1 = exp_th*(*b - *a)/x1;
+        dpth2 =  ((*a - *b)*exp_th+(*b - *a)*exp_th*exp_th)/(x1*x);
+    } else {
+        exp_th =  exp(th[i]);
+        x = exp_th+1;p = (*b * exp_th + *a)/x;
+        x1 = x*x;dpth1 = exp_th*(*b - *a)/x1;
+        dpth2 = ((*a - *b)*exp_th*exp_th+(*b - *a)*exp_th)/(x*x1);
+    }
+    /* first find the location of the series maximum... */
+    x = pow(y[i],2 - p)/(phi * (2 - p));
+    j_max = (int) floor(x);
+    if (x - j_max  > .5||j_max<1) j_max++; 
+    
+    j = j_max; 
+    onep = 1 - p;onep2 = onep * onep;
+    twop = 2 - p;
+    alpha = twop/onep;
+    alogy = log(y[i]);
+    logy1p2 = alogy/(onep2);
+    logy1p3 = logy1p2/onep;
+    alogy *= alpha; /* alpha * log(y[i]) */
+
+    wdW2d2W= wdlogwdp=dWpp=0.0;
+    wi=w1i=w2i=0.0;
+
+    /* get terms that are repeated in logWj etc., but simply multiplied by j */
+    w_base = alpha * log(-onep) + rho[i]/onep - log(twop);
+    wp_base = (log(-onep) + rho[i])/onep2 - alpha/onep + 1/twop;
+    wp2_base= 2*(log(-onep) + rho[i])/(onep2*onep) - (3*alpha-2)/(onep2) + 1/(twop*twop);
+
+    wmax = j * w_base - lgamma((double)j+1) - lgamma(-j * alpha) - j*alogy;
+    wmin = wmax + log_eps; 
+   
+    /* start upsweep/downsweep to convergence */
+    ok = 0;//xmax=x1max=x2max=0.0;
+    //for (j=j_max+j0,jb=j_max;jb<=j_hi;jb++,j++) { // note initially wi etc initialized to 1 and summation starts 1 later
+    incr = 1;
+    lgammaj1 = lgamma((double)j+1); // lgamma(j+1) to be computed by recursion
+    while (!ok) {
+      wbj = j * w_base - lgammaj1 - lgamma(-j * alpha);
+      wb1j = -j/onep;
+      xx = j/onep2;
+      x = xx*digamma(-j*alpha);
+      wp1jb = j * wp_base + x; /* base for d logW_j/dp */
+     
+      xx = trigamma(-j*alpha) * xx * xx;
+      wp2jb = j * wp2_base + 2*x/onep - xx;
+      wppjb = j /onep2;
+
+      jalogy = j * alogy;
+      wj = wbj - jalogy;
+      w1j = wb1j;
+      wp1j = wp1jb - j * logy1p2; /* d log W / dp */
+      
+      wp2j = wp2jb - 2 * j * logy1p3; /* d^2 log W/ dp^2 */
+      
+      /* transform to working parameterization ... */
+      wp2j = wp1j * dpth2 + wp2j * dpth1 * dpth1; /* d^2 log W/ dth^2 */
+      wp1j *= dpth1; /* d log W / dth */
+      wppj = wppjb * dpth1; 
+
+      wj_scaled =  exp(wj-wmax);
+      wi += wj_scaled; /* sum of the scaled W_j */
+
+      w1i += wj_scaled * w1j; /* sum W_j dlogW_j / d rho */
+      w2i += wj_scaled * w1j*w1j; /*  sum W_j d^2logW_j / d rho^2 */ 
+ 
+      x = wj_scaled*wp1j;
+      wdlogwdp += x;    /* sum_j W_j dlogW_j/dp */
+      //Rprintf("wdlogwdp=%g   wj_scaled=%g  wp1j=%g\n",wdlogwdp,wj_scaled,wp1j);
+      x1 = wj_scaled*(wp1j*wp1j + wp2j);
+      wdW2d2W += x1;  /* sum_j  (dlog W_j/dp)^2 + W_j d^2logW_j/dp^2 */     
+      
+      x2 = wj_scaled*(wp1j*j/onep + wppj);
+      dWpp += x2; 
+      j += incr;
+      if (incr>0) { // upsweep
+	lgammaj1 += log(j);
+        if (wj < wmin) { j = j_max - 1;incr = -1;
+	  if (j==0) ok=1; // finished
+          lgammaj1 = lgamma((double)j+1);
+	} // change to downsweep
+      } else {
+	lgammaj1 += -log(j+1);
+        if (wj < wmin||j<1) ok=1; // finished
+      }
+    } /* end of upsweep/downsweep */ 
+    //Rprintf("wdlogwdp = %g\n",wdlogwdp);
+    /* Summation now complete: need to do final transformations */
+    w[i] = wmax + log(wi);    /* contains log W */
+    w2[i] = w2i/wi - (w1i/wi)*(w1i/wi);
+    w2p[i] = wdW2d2W/wi - (wdlogwdp/wi)*(wdlogwdp/wi);
+    w2pp[i] = (w1i/wi)*(wdlogwdp/wi) + dWpp/wi;
+    w1[i] = -w1i/wi;
+    w1p[i] =  wdlogwdp/wi;
+
+  } /* end of looping through y */
+} /* tweedious2 */
 
 
 
@@ -530,7 +670,7 @@ x <- rtweedie(10000,power=1.5,mu=1,phi=1)
 /** Fast re-weighting routines                         */
 /*******************************************************/
 
-void rwMatrix(int *stop,int *row,double *w,double *X,int *n,int *p,int *trans) {
+void rwMatrix(int *stop,int *row,double *w,double *X,int *n,int *p,int *trans,double *work) {
 /* Function to recombine rows of n by p matrix X (column ordered).
    ith row of X' is made up of row[stop[i-1]+1...stop[i]], weighted by 
    w[stop[i-1]+1...stop[i]]. stop[-1]=-1 by convention.
@@ -540,14 +680,17 @@ void rwMatrix(int *stop,int *row,double *w,double *X,int *n,int *p,int *trans) {
    j from stop[i-1]+1 to stop[i]. Otherwise the tranposed operation 
    x'[row[j]] += w[row[j]] * x[i] is used with the same j range. x' zero at outset.
 
+   work is same dimension as X
+
    See rwMatrix in bam.r for call from R. 
 */
-  int i,j,jump,start=0,end,off;
+  ptrdiff_t i,j,jump,start=0,end,off;
   double *X1p,*Xp,weight,*Xpe,*X1;
   /* create storage for output matrix, cleared to zero */
-  X1 = (double *)R_chk_calloc((size_t)(*n * *p),sizeof(double));
+  X1 = work; 
   jump = *n;
-  off = *n * *p;
+  off = *n * (ptrdiff_t) *p; 
+  for (X1p=X1,Xpe=X1p+off;X1p<Xpe;X1p++) *X1p = 0.0;
   for (i=0;i<*n;i++) { /* loop through rows of output X1 */
     end = stop[i]+1;
     for (j=start;j<end;j++) { /* loop through the input rows */
@@ -565,7 +708,6 @@ void rwMatrix(int *stop,int *row,double *w,double *X,int *n,int *p,int *trans) {
   }
   /* copy output to input for return...*/
   for (Xp=X,X1p=X1,Xpe=Xp+off;Xp<Xpe;Xp++,X1p++) *Xp = *X1p;
-  R_chk_free(X1);
 }
 
 /* Example code for rwMatrix in R....

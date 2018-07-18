@@ -9,7 +9,7 @@ full likelihood is desirable. \code{Tweedie} is for use with fixed \code{p}. \co
 is to be estimated during fitting. For fixed \code{p} between 1 and 2 the Tweedie is an exponential family 
 distribution with variance given by the mean to the power \code{p}.
 
-\code{tw} is only useable with \code{\link{gam}}, not \code{bam} or \code{gamm}. \code{Tweedie} works with all three.
+\code{tw} is only useable with \code{\link{gam}} and \code{\link{bam}} but not \code{gamm}. \code{Tweedie} works with all three.
 }
 
 \usage{
@@ -73,6 +73,12 @@ Tweedie, M. C. K. (1984). An index which distinguishes between
      New Directions. Proceedings of the Indian Statistical Institute
      Golden Jubilee International Conference (Eds. J. K. Ghosh and J.
      Roy), pp. 579-604. Calcutta: Indian Statistical Institute.
+
+Wood, S.N., N. Pya and B. Saefken (2016), Smoothing parameter and
+model selection for general smooth models.
+Journal of the American Statistical Association 111, 1548-1575
+\url{http://dx.doi.org/10.1080/01621459.2016.1180986}
+
 }
 
 \seealso{\code{\link{ldTweedie}}, \code{\link{rTweedie}}}

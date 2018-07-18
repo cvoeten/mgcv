@@ -1,4 +1,4 @@
-#  R plotting routines for the package mgcv (c) Simon Wood 2000-2010
+#  R plotting routines for the package mgcv (c) Simon Wood 2000-2017
 ##  With contributions from Henric Nilsson
 
 
@@ -32,7 +32,7 @@ fix.family.qf <- function(fam) {
     }
   } else if (family=="binomial") {
     fam$qf <- function(p,mu,wt,scale) {
-      qbinom(p,wt,mu)/wt
+      qbinom(p,wt,mu)/(wt + as.numeric(wt==0))
     }
   } else if (family=="Gamma") {
     fam$qf <- function(p,mu,wt,scale) {
@@ -59,7 +59,7 @@ fix.family.rd <- function(fam) {
     }
   } else if (family=="binomial") {
     fam$rd <- function(mu,wt,scale) {
-      rbinom(mu,wt,mu)/wt
+      rbinom(mu,wt,mu)/(wt + as.numeric(wt==0))
     }
   } else if (family=="Gamma") {
     fam$rd <- function(mu,wt,scale) {
@@ -134,8 +134,9 @@ qq.gam <- function(object, rep=0, level=.9,s.rep=10,
     }
   } else {
     ## ix <- sort.int(D,index.return=TRUE)$ix ## messes up under multiple ties!
-    ix <- rank(D)
-    U <- (ix-.5)/length(D)
+    #ix <- rank(D)
+    #U <- (ix-.5)/length(D) ## code used pre-randomization - not needed
+    U <- (1:n-.5)/n
     if (!is.null(fam$qf)) { 
       dm <- matrix(0,n,s.rep)
       for (i in 1:s.rep) { 
@@ -145,13 +146,6 @@ qq.gam <- function(object, rep=0, level=.9,s.rep=10,
         dm[,i] <- sort(residuals(object,type=type)) ## original proposal
       }
       Dq <- sort(rowMeans(dm))
-     # Dq <- quantile(as.numeric(dm),(1:n - .5)/n)
-
-     # nd <- length(Dq)
-     # q1 <- fam$qf(1-U,object$fitted.values,object$prior.weights,object$sig2)
-     # object$y <- q1
-     # Dq <- sort(c(Dq,residuals(object,type=type)))
-     # Dq <- (Dq[(1:nd)*2]+Dq[(1:nd)*2-1])*.5 ## more powerful alternative 
     }
   }
  
@@ -267,7 +261,7 @@ gam.check <- function(b, old.style=FALSE,
              napredict(b$na.action, b$linear.predictors[,1]) else 
              napredict(b$na.action, b$linear.predictors)
 ##  if (b$method%in%c("GCV","GACV","UBRE","REML","ML","P-ML","P-REML","mle.REML","mle.ML","PQL")) { 
-    old.par<-par(mfrow=c(2,2))
+    if (is.null(.Platform$GUI) || .Platform$GUI != "RStudio") old.par <- par(mfrow=c(2,2))
     if (old.style)
       qqnorm(resid,...)
     else
@@ -279,45 +273,51 @@ gam.check <- function(b, old.style=FALSE,
     if (is.matrix(fv)&&!is.matrix(b$y)) fv <- fv[,1]
     plot(fv, napredict(b$na.action, b$y),
          xlab="Fitted Values",ylab="Response",main="Response vs. Fitted Values",...)
-    if (!(b$method%in%c("GCV","GACV","UBRE","REML","ML","P-ML","P-REML","fREML"))) { ## gamm `gam' object
-       par(old.par)
-       return(invisible())
-    }
-    ## now summarize convergence information 
-    cat("\nMethod:",b$method,"  Optimizer:",b$optimizer)
-    if (!is.null(b$outer.info)) { ## summarize convergence information
-      if (b$optimizer[2]%in%c("newton","bfgs"))
-      { boi <- b$outer.info
-        cat("\n",boi$conv," after ",boi$iter," iteration",sep="")
-        if (boi$iter==1) cat(".") else cat("s.")
-        cat("\nGradient range [",min(boi$grad),",",max(boi$grad),"]",sep="")
-        cat("\n(score ",b$gcv.ubre," & scale ",b$sig2,").",sep="")
-        ev <- eigen(boi$hess)$values
-        if (min(ev)>0) cat("\nHessian positive definite, ") else cat("\n")
-        cat("eigenvalue range [",min(ev),",",max(ev),"].\n",sep="")
-      } else { ## just default print of information ..
-        cat("\n");print(b$outer.info)
-      }
-    } else { ## no sp, perf iter or AM case
-      if (length(b$sp)==0) ## no sp's estimated  
-        cat("\nModel required no smoothing parameter selection")
-      else { 
-        cat("\nSmoothing parameter selection converged after",b$mgcv.conv$iter,"iteration")       
-        if (b$mgcv.conv$iter>1) cat("s")
-         
-        if (!b$mgcv.conv$fully.converged)
-        cat(" by steepest\ndescent step failure.\n") else cat(".\n")
-        cat("The RMS",b$method,"score gradiant at convergence was",b$mgcv.conv$rms.grad,".\n")
-        if (b$mgcv.conv$hess.pos.def)
-        cat("The Hessian was positive definite.\n") else cat("The Hessian was not positive definite.\n")
-        cat("The estimated model rank was ",b$mgcv.conv$rank,
-                   " (maximum possible: ",b$mgcv.conv$full.rank,")\n",sep="")
-      }
-    }
-    if (!is.null(b$rank)) {
-      cat("Model rank = ",b$rank,"/",length(b$coefficients),"\n")
-    }
 
+    gamm <- !(b$method%in%c("GCV","GACV","UBRE","REML","ML","P-ML","P-REML","fREML")) ## gamm `gam' object
+
+    #if (is.null(.Platform$GUI) || .Platform$GUI != "RStudio") par(old.par)
+    #   return(invisible())
+    #}
+    ## now summarize convergence information 
+    if (gamm) {
+      cat("\n\'gamm\' based fit - care required with interpretation.")
+      cat("\nChecks based on working residuals may be misleading.")
+    } else { 
+      cat("\nMethod:",b$method,"  Optimizer:",b$optimizer)
+      if (!is.null(b$outer.info)) { ## summarize convergence information
+        if (b$optimizer[2]%in%c("newton","bfgs"))
+        { boi <- b$outer.info
+          cat("\n",boi$conv," after ",boi$iter," iteration",sep="")
+          if (boi$iter==1) cat(".") else cat("s.")
+          cat("\nGradient range [",min(boi$grad),",",max(boi$grad),"]",sep="")
+          cat("\n(score ",b$gcv.ubre," & scale ",b$sig2,").",sep="")
+          ev <- eigen(boi$hess)$values
+          if (min(ev)>0) cat("\nHessian positive definite, ") else cat("\n")
+          cat("eigenvalue range [",min(ev),",",max(ev),"].\n",sep="")
+        } else { ## just default print of information ..
+          cat("\n");print(b$outer.info)
+        }
+      } else { ## no sp, perf iter or AM case
+        if (length(b$sp)==0) ## no sp's estimated  
+          cat("\nModel required no smoothing parameter selection")
+        else { 
+          cat("\nSmoothing parameter selection converged after",b$mgcv.conv$iter,"iteration")       
+          if (b$mgcv.conv$iter>1) cat("s")
+         
+          if (!b$mgcv.conv$fully.converged)
+          cat(" by steepest\ndescent step failure.\n") else cat(".\n")
+          cat("The RMS",b$method,"score gradient at convergence was",b$mgcv.conv$rms.grad,".\n")
+          if (b$mgcv.conv$hess.pos.def)
+          cat("The Hessian was positive definite.\n") else cat("The Hessian was not positive definite.\n")
+          #cat("The estimated model rank was ",b$mgcv.conv$rank,
+          #           " (maximum possible: ",b$mgcv.conv$full.rank,")\n",sep="")
+        }
+      }
+      if (!is.null(b$rank)) {
+        cat("Model rank = ",b$rank,"/",length(b$coefficients),"\n")
+      }
+    } ## if gamm
     cat("\n")
     ## now check k
     kchck <- k.check(b,subsample=k.sample,n.rep=k.rep)
@@ -326,7 +326,7 @@ gam.check <- function(b, old.style=FALSE,
       cat("indicate that k is too low, especially if edf is close to k\'.\n\n")
       printCoefmat(kchck,digits=3);
     }
-    par(old.par)
+    if (is.null(.Platform$GUI) ||.Platform$GUI != "RStudio") par(old.par)
 ##  } else plot(linpred,resid,xlab="linear predictor",ylab="residuals",...)
 } ## end of gam.check
 
@@ -335,7 +335,7 @@ gam.check <- function(b, old.style=FALSE,
 #############################################
 
 plot.random.effect <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
-                     partial.resids=FALSE,rug=TRUE,se=TRUE,scale=-1,n=100,n2=40,
+                     partial.resids=FALSE,rug=TRUE,se=TRUE,scale=-1,n=100,n2=40,n3=3,
                      pers=FALSE,theta=30,phi=30,jit=FALSE,xlab=NULL,ylab=NULL,main=NULL,
                      ylim=NULL,xlim=NULL,too.far=0.1,shade=FALSE,shade.col="gray80",
                      shift=0,trans=I,by.resids=FALSE,scheme=0,...) {
@@ -354,8 +354,9 @@ plot.random.effect <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2
 
     } ## end of basic plot data production 
   } else { ## produce plot
-    qqnorm(P$fit,main=P$main,xlab=P$xlab,ylab=P$ylab,...)
-    qqline(P$fit)
+    b <- as.numeric(trans(P$fit+shift))
+    qqnorm(b,main=P$main,xlab=P$xlab,ylab=P$ylab,...)
+    qqline(b)
   } ## end of plot production
 } ## end of plot.random.effect
 
@@ -435,16 +436,18 @@ lolaxy <- function(lo,la,theta,phi) {
 } ## end of lolaxy
 
 plot.sos.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
-                     partial.resids=FALSE,rug=TRUE,se=TRUE,scale=-1,n=100,n2=40,
+                     partial.resids=FALSE,rug=TRUE,se=TRUE,scale=-1,n=100,n2=40,n3=3,
                      pers=FALSE,theta=30,phi=30,jit=FALSE,xlab=NULL,ylab=NULL,main=NULL,
                      ylim=NULL,xlim=NULL,too.far=0.1,shade=FALSE,shade.col="gray80",
-                     shift=0,trans=I,by.resids=FALSE,scheme=0,...) {
+                     shift=0,trans=I,by.resids=FALSE,scheme=0,hcolors=heat.colors(100),
+                     contour.col=3,...) {
 ## plot method function for sos.smooth terms
   if (scheme>1) return(plot.mgcv.smooth(x,P=P,data=data,label=label,se1.mult=se1.mult,se2.mult=se2.mult,
                      partial.resids=partial.resids,rug=rug,se=se,scale=scale,n=n,n2=n2,
                      pers=pers,theta=theta,phi=phi,jit=jit,xlab=xlab,ylab=ylab,main=main,
                      ylim=ylim,xlim=xlim,too.far=too.far,shade=shade,shade.col=shade.col,
-                     shift=shift,trans=trans,by.resids=by.resids,scheme=scheme-2,...))
+                     shift=shift,trans=trans,by.resids=by.resids,scheme=scheme-2,
+                     hcolors=hcolors,contour.col=contour.col,...))
   ## convert location of pole in plotting grid to radians
   phi <- phi*pi/180
   theta <- theta*pi/180
@@ -503,8 +506,8 @@ plot.sos.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
     m <- length(P$xm); zz <- rep(NA,m*m)
     if (scheme == 0) {
       col <- 1# "lightgrey 
-      zz[P$ind] <- P$fit
-      image(P$xm,P$ym,matrix(zz,m,m),col=heat.colors(100),axes=FALSE,xlab="",ylab="",...)
+      zz[P$ind] <- trans(P$fit+shift)
+      image(P$xm,P$ym,matrix(zz,m,m),col=hcolors,axes=FALSE,xlab="",ylab="",...)
       if (rug) { 
         if (is.null(list(...)[["pch"]])) points(P$raw$x,P$raw$y,pch=".",...) else
         points(P$raw$x,P$raw$y,...)
@@ -514,10 +517,10 @@ plot.sos.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
       zz[P$ind] <- P$lo
       contour(P$xm,P$ym,matrix(zz,m,m),add=TRUE,levels=c(-8:9*20),col=col,...)
       zz[P$ind] <- P$fit
-      contour(P$xm,P$ym,matrix(zz,m,m),add=TRUE,col=3,...)
+      contour(P$xm,P$ym,matrix(zz,m,m),add=TRUE,col=contour.col,...)
     } else if (scheme == 1) {
       col <- 1 
-      zz[P$ind] <- P$fit
+      zz[P$ind] <- trans(P$fit+shift)
       contour(P$xm,P$ym,matrix(zz,m,m),col=1,axes=FALSE,xlab="",ylab="",...) 
       if (rug) { 
         if (is.null(list(...)[["pch"]])) points(P$raw$x,P$raw$y,pch=".",...) else
@@ -552,7 +555,7 @@ poly2 <- function(x,col) {
     if (!is.na(col)) polygon(xf,col=col,border=NA,fillOddEven=TRUE)
     polygon(x,border="black")
   }
-}
+} ## poly2
 
 polys.plot <- function(pc,z=NULL,scheme="heat",lab="",...) { 
 ## pc is a list of polygons defining area boundaries
@@ -633,10 +636,10 @@ polys.plot <- function(pc,z=NULL,scheme="heat",lab="",...) {
     polygon(poly,border="black")
   }
   par(oldpar)
-}
+} ## polys.plot
 
 plot.mrf.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
-                     partial.resids=FALSE,rug=TRUE,se=TRUE,scale=-1,n=100,n2=40,
+                     partial.resids=FALSE,rug=TRUE,se=TRUE,scale=-1,n=100,n2=40,n3=3,
                      pers=FALSE,theta=30,phi=30,jit=FALSE,xlab=NULL,ylab=NULL,main=NULL,
                      ylim=NULL,xlim=NULL,too.far=0.1,shade=FALSE,shade.col="gray80",
                      shift=0,trans=I,by.resids=FALSE,scheme=0,...) {
@@ -647,6 +650,7 @@ plot.mrf.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
     raw <- data[x$term][[1]]
     dat <- data.frame(x=factor(names(x$xt$polys),levels=levels(x$knots)))
     names(dat) <- x$term
+    x$by <- "NA"
     X <- PredictMat(x,dat)   # prediction matrix for this term
     if (is.null(xlab)) xlabel<- "" else xlabel <- xlab
     if (is.null(ylab)) ylabel <- "" else ylabel <- ylab
@@ -654,13 +658,13 @@ plot.mrf.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
              main=label))
     } else { ## do plot
       if (scheme==0) scheme <- "heat" else scheme <- "grey"
-      polys.plot(x$xt$polys,P$fit,scheme=scheme,lab=P$main,...)
+      polys.plot(x$xt$polys,trans(P$fit+shift),scheme=scheme,lab=P$main,...)
     }
 
 } ## end plot.mrf.smooth
 
 plot.fs.interaction <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
-                     partial.resids=FALSE,rug=TRUE,se=TRUE,scale=-1,n=100,n2=40,
+                     partial.resids=FALSE,rug=TRUE,se=TRUE,scale=-1,n=100,n2=40,n3=3,
                      pers=FALSE,theta=30,phi=30,jit=FALSE,xlab=NULL,ylab=NULL,main=NULL,
                      ylim=NULL,xlim=NULL,too.far=0.1,shade=FALSE,shade.col="gray80",
                      shift=0,trans=I,by.resids=FALSE,scheme=0,...) {
@@ -672,8 +676,10 @@ plot.fs.interaction <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=
     nf <- length(x$flev)
     fac <- rep(x$flev,rep(n,nf))
     dat <- data.frame(fac,xx)
-    names(dat) <- c(x$fterm,x$base$term)
-#    X <- Predict.matrix.fs.interaction(x,dat)
+    names(dat) <- c(x$fterm,x$base$term)  
+    if (x$by!="NA") {        # deal with any by variables
+      dat[[x$by]] <- rep(1,n)
+    }
     X <- PredictMat(x,dat)
     if (is.null(xlab)) xlabel <- x$base$term else xlabel <- xlab
     if (is.null(ylab)) ylabel <- label else ylabel <- ylab
@@ -681,23 +687,25 @@ plot.fs.interaction <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=
              main="",x=xx,n=n,nf=nf))
   } else { ## produce the plot
     ind <- 1:P$n
-    plot(P$x[ind],P$fit[ind],ylim=range(P$fit),xlab=P$xlab,ylab=P$ylab,type="l")
+    if(is.null(ylim)) ylim <- trans(range(P$fit)+shift) 
+    plot(P$x[ind],trans(P$fit[ind]+shift),ylim=ylim,xlab=P$xlab,ylab=P$ylab,type="l",...)
     if (P$nf>1) for (i in 2:P$nf) {
       ind <- ind + P$n
-      if (scheme==0) lines(P$x,P$fit[ind],lty=i,col=i) else 
-      lines(P$x,P$fit[ind],lty=i)
+      if (scheme==0) lines(P$x,trans(P$fit[ind]+shift),lty=i,col=i) else 
+      lines(P$x,trans(P$fit[ind]+shift),lty=i)
     }
   }
 } ## end plot.fs.interaction
 
 plot.mgcv.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
-                     partial.resids=FALSE,rug=TRUE,se=TRUE,scale=-1,n=100,n2=40,
+                     partial.resids=FALSE,rug=TRUE,se=TRUE,scale=-1,n=100,n2=40,n3=3,
                      pers=FALSE,theta=30,phi=30,jit=FALSE,xlab=NULL,ylab=NULL,main=NULL,
                      ylim=NULL,xlim=NULL,too.far=0.1,shade=FALSE,shade.col="gray80",
-                     shift=0,trans=I,by.resids=FALSE,scheme=0,...) {
+                     shift=0,trans=I,by.resids=FALSE,scheme=0,hcolors=heat.colors(50),
+                     contour.col=3,...) {
 ## default plot method for smooth objects `x' inheriting from "mgcv.smooth"
 ## `x' is a smooth object, usually part of a `gam' fit. It has an attribute
-##     'coefficients' containg the coefs for the smooth, but usually these
+##     'coefficients' containing the coefs for the smooth, but usually these
 ##     are not needed.
 ## `P' is a list of plot data. 
 ##     If `P' is NULL then the routine should compute some of this plot data
@@ -724,6 +732,7 @@ plot.mgcv.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
 ## `data' is a data frame containing the raw data for the smooth, usually the 
 ##        model.frame of the fitted gam. Can be NULL if P is not NULL.
 ## `label' is the term label, usually something like e.g. `s(x,12.34)'.
+## Note that if ylim is supplied it should not be transformed using trans and shift.
 #############################
 
   sp.contour <- function(x,y,z,zse,xlab="",ylab="",zlab="",titleOnly=FALSE,
@@ -800,7 +809,7 @@ plot.mgcv.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
   }  ## end of sp.contour
 
   if (is.null(P)) { ## get plotting information...
-    if (!x$plot.me||x$dim>2) return(NULL) ## shouldn't or can't plot
+    if (!x$plot.me||x$dim>4) return(NULL) ## shouldn't or can't plot
     if (x$dim==1) { ## get basic plotting data for 1D terms 
       raw <- data[x$term][[1]]
       if (is.null(xlim)) xx <- seq(min(raw),max(raw),length=n) else # generate x sequence for prediction
@@ -817,7 +826,7 @@ plot.mgcv.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
       if (is.null(xlim)) xlim <- range(xx)
       return(list(X=X,x=xx,scale=TRUE,se=TRUE,raw=raw,xlab=xlabel,ylab=ylabel,
              main=main,se.mult=se1.mult,xlim=xlim))
-    } else { ## basic plot data for 2D terms
+    } else if (x$dim==2) { ## basic plot data for 2D terms
       xterm <- x$term[1]
       if (is.null(xlab)) xlabel <- xterm else xlabel <- xlab
       yterm <- x$term[2]
@@ -834,8 +843,8 @@ plot.mgcv.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
       if (too.far>0)
       exclude <- exclude.too.far(xx,yy,raw$x,raw$y,dist=too.far) else
       exclude <- rep(FALSE,n2*n2)
-      if (x$by!="NA")         # deal with any by variables
-      { by <- rep(1,n2^2);dat <- data.frame(x=xx,y=yy,by=by)
+      if (x$by!="NA") {        # deal with any by variables
+        by <- rep(1,n2^2);dat <- data.frame(x=xx,y=yy,by=by)
         names(dat) <- c(xterm,yterm,x$by)
       } else { 
         dat<-data.frame(x=xx,y=yy);names(dat)<-c(xterm,yterm)
@@ -848,7 +857,58 @@ plot.mgcv.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
       if (is.null(xlim)) xlim <- range(xm) 
       return(list(X=X,x=xm,y=ym,scale=FALSE,se=TRUE,raw=raw,xlab=xlabel,ylab=ylabel,
              main=main,se.mult=se2.mult,ylim=ylim,xlim=xlim,exclude=exclude))
-    } ## end of 2D basic plot data production 
+    } else { ## basic plot data for 3 or 4 d terms
+      vname <- x$term
+      ## if the smooth has margins and one is 2D then set that as the 
+      ## term for 2D plotting, rather than conditioning....
+      if (!is.null(x$margin)) {
+        for (i in 1:length(x$margin)) if (x$margin[[i]]$dim==2) {
+          vname <- x$margin[[i]]$term ## these are the variables to 2d plot
+          vname <- c(vname,x$term[!x$term%in%vname])
+          break;
+        }
+      }
+      ## ... so first 2 terms in vname are the vars to plot in 2D. 
+      ## Now get the limits for plotting...
+      nv <- length(vname)
+      lo <- hi <- rep(0,nv)
+      for (i in 1:length(vname)) {
+        xx <- data[vname[i]][[1]] 
+        lo[i] <- min(xx);hi[i] <- max(xx)
+      } 
+      nc <- nr <- n3 ## set number cols and rows of plot
+      m <- n2 ## 2d plotting grid side
+      x1 <- seq(lo[1],hi[1],length=m)
+      x2 <- seq(lo[2],hi[2],length=m)
+      if (nv==3) {
+        x3 <- seq(lo[3],hi[3],length=nr*nc)
+        dat <- cbind(rep(x1,m*nr*nc),
+           rep(rep(x2,each=m*nr),nc),
+           x3[rep(rep((1:nr-1)*nc,each=m),m*nc) + rep(1:nc,each=m*m*nr)])
+      } else {
+        x3 <- seq(lo[3],hi[3],length=nr)
+        x4 <- seq(lo[4],hi[4],length=nc)
+        dat <- cbind(rep(x1,m*nr*nc),
+             rep(rep(x2,each=m*nr),nc),
+             rep(rep(x3,each=m),m*nc),
+             rep(x4,each=m*m*nr))
+      } ## 4D term end
+      if (x$by!="NA") {
+        dat <- data.frame(cbind(dat,1))
+        names(dat) <- c(vname,x$by)
+      } else {
+        dat <- data.frame(dat)
+        names(dat) <- vname
+      }
+      X <- PredictMat(x,dat)   ## prediction matrix for this term
+      exclude <- if (too.far<=0) rep(FALSE,nrow(X)) else
+      exclude.too.far(dat[,1],dat[,2],data[vname[1]][[1]],data[vname[2]][[1]],dist=too.far)
+      if (is.null(main)) { 
+        main <- label
+      }
+      return(list(X=X,scale=FALSE,se=FALSE,m=m,nc=nc,nr=nr,lo=lo,hi=hi,vname=vname,
+             main=main,exclude=exclude))
+    } ## end of 3/4 D case
   } else { ## produce plot
     if (se) { ## produce CI's
       if (x$dim==1) { 
@@ -864,17 +924,17 @@ plot.mgcv.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
             if (min.r < ylimit[1]) ylimit[1] <- min.r
           }
         }
-        if (!is.null(ylim)) ylimit <- ylim
+        ylimit <- if (is.null(ylim)) ylimit <- trans(ylimit + shift) else ylim
          
         ## plot the smooth... 
         if (shade) { 
-          plot(P$x,trans(P$fit+shift),type="n",xlab=P$xlab,ylim=trans(ylimit+shift),
+          plot(P$x,trans(P$fit+shift),type="n",xlab=P$xlab,ylim=ylimit,
                  xlim=P$xlim,ylab=P$ylab,main=P$main,...)
           polygon(c(P$x,P$x[n:1],P$x[1]),
                     trans(c(ul,ll[n:1],ul[1])+shift),col = shade.col,border = NA)
           lines(P$x,trans(P$fit+shift),...)
         } else { ## ordinary plot 
-          plot(P$x,trans(P$fit+shift),type="l",xlab=P$xlab,ylim=trans(ylimit+shift),xlim=P$xlim,
+          plot(P$x,trans(P$fit+shift),type="l",xlab=P$xlab,ylim=ylimit,xlim=P$xlim,
                  ylab=P$ylab,main=P$main,...)
           if (is.null(list(...)[["lty"]])) { 
             lines(P$x,trans(ul+shift),lty=2,...)
@@ -906,10 +966,11 @@ plot.mgcv.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
         if (scheme == 1) { ## perspective plot 
           persp(P$x,P$y,matrix(trans(P$fit+shift),n2,n2),xlab=P$xlab,ylab=P$ylab,
                   zlab=P$main,ylim=P$ylim,xlim=P$xlim,theta=theta,phi=phi,...)
-        } else if (scheme==2) {
+        } else if (scheme==2||scheme==3) {
+          if (scheme==3) hcolors <- grey(0:50/50)
           image(P$x,P$y,matrix(trans(P$fit+shift),n2,n2),xlab=P$xlab,ylab=P$ylab,
-                  main=P$main,xlim=P$xlim,ylim=P$ylim,col=heat.colors(50),...)
-          contour(P$x,P$y,matrix(trans(P$fit+shift),n2,n2),add=TRUE,col=3,...)
+                  main=P$main,xlim=P$xlim,ylim=P$ylim,col=hcolors,...)
+          contour(P$x,P$y,matrix(trans(P$fit+shift),n2,n2),add=TRUE,col=contour.col,...)
           if (rug) {  
             if (is.null(list(...)[["pch"]])) points(P$raw$x,P$raw$y,pch=".",...) else
             points(P$raw$x,P$raw$y,...)
@@ -923,7 +984,10 @@ plot.mgcv.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
             points(P$raw$x,P$raw$y,pch=".",...) else
             points(P$raw$x,P$raw$y,...) 
           }
-        } ## counter plot done 
+        } ## contour plot done 
+      } else if (x$dim<5) {
+        if (scheme==1) hcolors <- grey(0:50/50)
+        md.plot(P$fit,P$nr,P$nc,P$m,P$vname,P$lo,P$hi,hcolors=hcolors,scheme=scheme,P$main,...)
       } else { 
          warning("no automatic plotting for smooths of more than two variables")
       }
@@ -932,9 +996,10 @@ plot.mgcv.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
         if (scale==0&&is.null(ylim)) { 
           if (partial.resids) ylimit <- range(P$p.resid,na.rm=TRUE) else ylimit <-range(P$fit)
         }
-        if (!is.null(ylim)) ylimit <- ylim
+        ylimit <- if (is.null(ylim)) ylimit <- trans(ylimit + shift) else ylim
+        
         plot(P$x,trans(P$fit+shift),type="l",xlab=P$xlab,
-             ylab=P$ylab,ylim=trans(ylimit+shift),xlim=P$xlim,main=P$main,...)
+             ylab=P$ylab,ylim=ylimit,xlim=P$xlim,main=P$main,...)
         if (rug) { 
           if (jit) rug(jitter(as.numeric(P$raw)),...)
           else rug(as.numeric(P$raw),...) 
@@ -951,10 +1016,11 @@ plot.mgcv.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
         if (scheme==1) { 
           persp(P$x,P$y,matrix(trans(P$fit+shift),n2,n2),xlab=P$xlab,ylab=P$ylab,
                           zlab=P$main,theta=theta,phi=phi,xlim=P$xlim,ylim=P$ylim,...)
-        } else if (scheme==2) {
+        } else if (scheme==2||scheme==3) {
+          if (scheme==3) hcolors <- grey(0:50/50)
           image(P$x,P$y,matrix(trans(P$fit+shift),n2,n2),xlab=P$xlab,ylab=P$ylab,
-                  main=P$main,xlim=P$xlim,ylim=P$ylim,col=heat.colors(50),...)
-          contour(P$x,P$y,matrix(trans(P$fit+shift),n2,n2),add=TRUE,col=3,...)
+                  main=P$main,xlim=P$xlim,ylim=P$ylim,col=hcolors,...)
+          contour(P$x,P$y,matrix(trans(P$fit+shift),n2,n2),add=TRUE,col=contour.col,...)
           if (rug) {  
             if (is.null(list(...)[["pch"]])) points(P$raw$x,P$raw$y,pch=".",...) else
             points(P$raw$x,P$raw$y,...)
@@ -967,16 +1033,96 @@ plot.mgcv.smooth <- function(x,P=NULL,data=NULL,label="",se1.mult=1,se2.mult=2,
             points(P$raw$x,P$raw$y,...)
           }
         }  
+      } else if (x$dim<5) {
+        if (scheme==1) hcolors <- grey(0:50/50)
+        md.plot(P$fit,P$nr,P$nc,P$m,P$vname,P$lo,P$hi,hcolors=hcolors,scheme=scheme,P$main,...)
       } else { 
-        warning("no automatic plotting for smooths of more than one variable")
+        warning("no automatic plotting for smooths of more than four variables")
       }
     } ## end of no CI code
   } ## end of plot production
-}
+} ## plot.mgcv.smooth
 
+md.plot <- function(f,nr,nc,m,vname,lo,hi,hcolors,scheme,main,...) {
+## multi-dimensional term plotter, called from plot.mgcv.smooth for
+## 3 and 4 dimensional terms. 
+## *f is the plot data. See `basic plot data for 3 or 4 d terms'
+##   in plot.mgcv.smooth for details of the packing conventions
+##   (f = X %*% coefs).
+## *nr and nc the number of rows and columns of plot panels
+## *m each panel is m by m
+## *vname contains the variable names
+## *lo and hi are the arrays of axis limits
+## *hcolors is the color palette for the image plot.
+## *scheme indicates b/w or color
+## *main is a title.
+  concol <- if (scheme==1) "white" else "black" 
+  nv <- length(vname) 
+  ## insert NA breaks to separate the panels within a plot...
+  f1 <- matrix(NA,nr*m+nr-1,nc*m)
+  ii <- rep(1:m,nr) + rep(0:(nr-1)*(m+1),each=m)
+  f1[ii,] <- f
+  f <- matrix(NA,nr*m+nr-1,nc*m+nc-1)
+  ii <- rep(1:m,nc) + rep(0:(nc-1)*(m+1),each=m)
+  f[,ii] <- f1
+  xx <- seq(0,1,length=ncol(f))
+  yy <- seq(0,1,length=nrow(f))
+  image(xx,yy,t(f),axes=FALSE,xlab="",ylab="",col=hcolors)
+  contour(xx,yy,t(f),add=TRUE,col=concol)
+  dl <- list(...)
+  c1 <- if (is.null(dl[["cex"]])) 1 else dl[["cex"]] 
+  c2 <- if (is.null(dl[["cex.axis"]])) .6 else dl[["cex.axis"]]
+  c3 <- if (is.null(dl[["cex.lab"]])) .9 else dl[["cex.lab"]]
+  if (nv==4) { 
+    x3 <- seq(lo[3],hi[3],length=nr)
+    x4 <- seq(lo[4],hi[4],length=nc)
+    mtext(vname[4],1,1.7,cex=c1*c3) ## x label
+    mtext(vname[3],2,1.7,cex=c1*c3) ## y label
+    at=(1:nc-.5)/nc
+    lab <- format(x4,digits=2)
+    for (i in 1:nc) mtext(lab[i],1,at=at[i],line=.5,cex=c1*c3)
+    at=(1:nr-.5)/nr
+    lab <- format(x4,digits=2)
+    for (i in 1:nr) mtext(lab[i],2,at=at[i],line=.5,cex=c1*c3)
+    ## now the 2d panel axes...
+    xr <- axisTicks(c(lo[2],hi[2]),log=FALSE,nint=4)
+    x0 <- ((nc-1)*(m+1)+1)/(nc*m+nc-1)
+    xt <- (xr-lo[2])/(hi[2]-lo[2])*(1-x0)+x0
+    axis(3,at=xt,labels=as.character(xr),cex.axis=c2,cex=c1)
+    xr <- axisTicks(c(lo[1],hi[1]),log=FALSE,nint=4)
+    x0 <- ((nr-1)*(m+1)+1)/(nr*m+nr-1)
+    xt <- (xr-lo[1])/(hi[1]-lo[1])*(1-x0)+x0
+    axis(4,at=xt,labels=as.character(xr),cex.axis=c2,cex=c1)
+    at <- (2*nc-3)/(2*nc) 
+    mtext(vname[2],3,at=at,line=.5,cex=c1*c2)
+    at <- (2*nr-3)/(2*nr) 
+    mtext(vname[1],4,at=at,line=.5,cex=c1*c2)
+    mtext(main,3,at=0,adj=0,line=1,cex=c1*c3)
+  } else {
+    x3 <- seq(lo[3],hi[3],length=nr*nc)
+    ## get pretty ticks
+    xr <- axisTicks(c(lo[2],hi[2]),log=FALSE,nint=4)
+    x0 <- (m-1)/(nc*m+nc-1)
+    xt <- (xr-lo[2])/(hi[2]-lo[2])*x0
+    axis(1,at=xt,labels=as.character(xr),cex.axis=c2,cex=c1)
+    mtext(vname[2],1,at=x0/2,line=2,cex=c1*c2)
+    xr <- axisTicks(c(lo[1],hi[1]),log=FALSE,nint=4)
+    x0 <- (m-1)/(nr*m+nr-1)
+    xt <- (xr-lo[1])/(hi[1]-lo[1])*x0
+    axis(2,at=xt,labels=as.character(xr),cex.axis=c2,cex=c1)
+    mtext(vname[1],2,at=x0/2,line=2,cex=c1*c2)
+    lab <- c("",format(x3[-1],digits=2))
+    at=(1:nc-.5)/nc
+    for (i in 2:nc) mtext(lab[i],1,at=at[i],line=.5,cex=c1*c3)
+    mtext(parse(text=paste(vname[3],"%->% \" \"")),1,at=mean(at[2:nc]),line=2,cex=c1*c3)
+    ii <- ((nr-1)*nr+1):(nc*nr)
+    for (i in 1:nc) mtext(lab[ii[i]],3,at=at[i],line=.5,cex=c1*c3)
+    mtext(parse(text=paste(vname[3],"%->% \" \"")),3,at=mean(at),line=2,cex=c1*c3)
+    mtext(main,2,at=1/nr+0.5*(nr-1)/nr,line=1,cex=c1*c3)
+  }
+} ## md.plot
 
-
-plot.gam <- function(x,residuals=FALSE,rug=TRUE,se=TRUE,pages=0,select=NULL,scale=-1,n=100,n2=40,
+plot.gam <- function(x,residuals=FALSE,rug=NULL,se=TRUE,pages=0,select=NULL,scale=-1,n=100,n2=40,n3=3,
                      pers=FALSE,theta=30,phi=30,jit=FALSE,xlab=NULL,ylab=NULL,main=NULL,
                      ylim=NULL,xlim=NULL,too.far=0.1,all.terms=FALSE,shade=FALSE,shade.col="gray80",
                      shift=0,trans=I,seWithMean=FALSE,unconditional=FALSE,by.resids=FALSE,scheme=0,...)
@@ -1017,14 +1163,18 @@ plot.gam <- function(x,residuals=FALSE,rug=TRUE,se=TRUE,pages=0,select=NULL,scal
   ## start of main function
   #########################
 
+  if (pers) warning("argument pers is deprecated, please use scheme instead")
+
+  if (is.null(rug)) rug <- if (nrow(x$model)>10000) FALSE else TRUE
+
   if (unconditional) {
     if (is.null(x$Vc)) warning("Smoothness uncertainty corrected covariance not available") else 
     x$Vp <- x$Vc ## cov matrix reset to full Bayesian
   }
 
-  w.resid<-NULL
-  if (length(residuals)>1) # residuals supplied 
-  { if (length(residuals)==length(x$residuals)) 
+  w.resid <- NULL
+  if (length(residuals)>1) { # residuals supplied 
+    if (length(residuals)==length(x$residuals)) 
     w.resid <- residuals else
     warning("residuals argument to plot.gam is wrong length: ignored")
     partial.resids <- TRUE
@@ -1060,7 +1210,7 @@ plot.gam <- function(x,residuals=FALSE,rug=TRUE,se=TRUE,pages=0,select=NULL,scal
     if (is.null(w.resid)) { ## produce working resids if info available
       if (is.null(x$residuals)||is.null(x$weights)) partial.resids <- FALSE else {
         wr <- sqrt(x$weights)
-        w.resid <- x$residuals*wr/mean(wr) # weighted working residuals
+        w.resid <- x$residuals*wr#/mean(wr) # weighted working residuals
       }
     }
     if (partial.resids) fv.terms <- predict(x,type="terms") ## get individual smooth effects
@@ -1081,7 +1231,7 @@ plot.gam <- function(x,residuals=FALSE,rug=TRUE,se=TRUE,pages=0,select=NULL,scal
     #P <- plot(x$smooth[[i]],P=NULL,data=x$model,n=n,n2=n2,xlab=xlab,ylab=ylab,too.far=too.far,label=term.lab,
     #          se1.mult=se1.mult,se2.mult=se2.mult,xlim=xlim,ylim=ylim,main=main,scheme=scheme[i],...)
     attr(x$smooth[[i]],"coefficients") <- x$coefficients[first:last]   ## relevent coefficients
-    P <- plot(x$smooth[[i]],P=NULL,data=x$model,partial.resids=partial.resids,rug=rug,se=se,scale=scale,n=n,n2=n2,
+    P <- plot(x$smooth[[i]],P=NULL,data=x$model,partial.resids=partial.resids,rug=rug,se=se,scale=scale,n=n,n2=n2,n3=n3,
                      pers=pers,theta=theta,phi=phi,jit=jit,xlab=xlab,ylab=ylab,main=main,label=term.lab,
                      ylim=ylim,xlim=xlim,too.far=too.far,shade=shade,shade.col=shade.col,
                      se1.mult=se1.mult,se2.mult=se2.mult,shift=shift,trans=trans,
@@ -1097,6 +1247,7 @@ plot.gam <- function(x,residuals=FALSE,rug=TRUE,se=TRUE,pages=0,select=NULL,scal
         ## test whether mean variability to be added to variability (only for centred terms)
         if (seWithMean && attr(x$smooth[[i]],"nCons")>0) {
           if (length(x$cmX) < ncol(x$Vp)) x$cmX <- c(x$cmX,rep(0,ncol(x$Vp)-length(x$cmX)))
+          if (seWithMean==2) x$cmX[-(1:x$nsdf)] <- 0 ## variability of fixed effects mean only
           X1 <- matrix(x$cmX,nrow(P$X),ncol(x$Vp),byrow=TRUE)
           meanL1 <- x$smooth[[i]]$meanL1
           if (!is.null(meanL1)) X1 <- X1 / meanL1
@@ -1147,17 +1298,6 @@ plot.gam <- function(x,residuals=FALSE,rug=TRUE,se=TRUE,pages=0,select=NULL,scal
   } else
   { ppp<-1;oldpar<-par()}
   
-  if ((pages==0&&prod(par("mfcol"))<n.plots&&dev.interactive())||
-       pages>1&&dev.interactive()) ask <- TRUE else ask <- FALSE 
-  
-  if (!is.null(select)) {
-    ask <- FALSE
-  }
- 
-  if (ask) {
-    oask <- devAskNewPage(TRUE)
-    on.exit(devAskNewPage(oask))
-  }
 
   #####################################
   ## get a common scale, if required...
@@ -1190,17 +1330,35 @@ plot.gam <- function(x,residuals=FALSE,rug=TRUE,se=TRUE,pages=0,select=NULL,scal
         if (ll < ylim[1]) ylim[1] <- ll
       } ## partial resids done
     } ## loop end 
+    ylim <- trans(ylim+shift)
   } ## end of common scale computation
   
   ##############################################################
   ## now plot smooths, by calling plot methods with plot data...
   ##############################################################
 
+  if ((pages==0&&prod(par("mfcol"))<n.plots&&dev.interactive())||
+       pages>1&&dev.interactive()) ask <- TRUE else ask <- FALSE 
+  
+  if (!is.null(select)) {
+    ask <- FALSE
+  }
+ 
+#  if (ask) { ## asks before plotting
+#    oask <- devAskNewPage(TRUE)
+#    on.exit(devAskNewPage(oask))
+#  }
+
   if (m>0) for (i in 1:m) if (pd[[i]]$plot.me&&(is.null(select)||i==select)) {
-    plot(x$smooth[[i]],P=pd[[i]],partial.resids=partial.resids,rug=rug,se=se,scale=scale,n=n,n2=n2,
+    plot(x$smooth[[i]],P=pd[[i]],partial.resids=partial.resids,rug=rug,se=se,scale=scale,n=n,n2=n2,n3=n3,
                      pers=pers,theta=theta,phi=phi,jit=jit,xlab=xlab,ylab=ylab,main=main,
                      ylim=ylim,xlim=xlim,too.far=too.far,shade=shade,shade.col=shade.col,
                      shift=shift,trans=trans,by.resids=by.resids,scheme=scheme[i],...)
+   if (ask) { ## this is within loop so we don't get asked before it's necessary
+     oask <- devAskNewPage(TRUE)
+     on.exit(devAskNewPage(oask))
+     ask <- FALSE ## only need to do this once
+   }
 
   } ## end of smooth plotting loop
   
@@ -1233,7 +1391,7 @@ plot.gam <- function(x,residuals=FALSE,rug=TRUE,se=TRUE,pages=0,select=NULL,scal
 
 
 
-exclude.too.far<-function(g1,g2,d1,d2,dist)
+exclude.too.far <- function(g1,g2,d1,d2,dist)
 # if g1 and g2 are the co-ordinates of grid modes and d1,d2 are co-ordinates of data
 # then this routine returns a vector with TRUE if the grid node is too far from
 # any data and FALSE otherwise. Too far is judged using dist: a positive number indicating
@@ -1437,15 +1595,15 @@ vis.gam <- function(x,view=NULL,cond=list(),n.grid=30,too.far=0,col=NA,color="he
       lo.col <- "green"
       hi.col <- "red"
     }
-    if (!is.null(zlim))
-    { if (length(zlim)!=2||zlim[1]>=zlim[2]) stop("Something wrong with zlim")
+    if (!is.null(zlim)) {
+      if (length(zlim)!=2||zlim[1]>=zlim[2]) stop("Something wrong with zlim")
       min.z<-zlim[1]
       max.z<-zlim[2]
-    } else
-    { z.max<-max(fv$fit+fv$se.fit*se,na.rm=TRUE)
-      z.min<-min(fv$fit-fv$se.fit*se,na.rm=TRUE)
+    } else {
+      max.z<-max(fv$fit+fv$se.fit*se,na.rm=TRUE)
+      min.z<-min(fv$fit-fv$se.fit*se,na.rm=TRUE)
+      zlim<-c(min.z,max.z)
     }
-    zlim<-c(z.min,z.max)
     z<-fv$fit-fv$se.fit*se;z<-matrix(z,n.grid,n.grid)
     if (plot.type=="contour") warning("sorry no option for contouring with errors: try plot.gam")
 

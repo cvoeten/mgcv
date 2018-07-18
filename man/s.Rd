@@ -7,12 +7,14 @@
   smooth - it exists purely to help set up a model using spline based smooths.
 }
 
-\usage{s(..., k=-1,fx=FALSE,bs="tp",m=NA,by=NA,xt=NULL,id=NULL,sp=NULL)}
+\usage{s(..., k=-1,fx=FALSE,bs="tp",m=NA,by=NA,xt=NULL,id=NULL,sp=NULL,pc=NULL)}
 
 %- maybe also `usage' for other objects documented here.
 \arguments{
 \item{...}{ a list of variables that are the covariates that this
-    smooth is a function of.}
+    smooth is a function of. Transformations whose form depends on
+    the values of the data are best avoided here: e.g. \code{s(log(x))}
+    is fine, but \code{s(I(x/sd(x)))} is not (see \code{\link{predict.gam}}).}
 
 \item{k}{ the dimension of the basis used to represent the smooth term.
     The default depends on the number of variables that the smooth is a
@@ -61,7 +63,9 @@ if covariates are matrices: in this case implements linear functional of a smoot
 length as the number of penalties for this smooth. Positive or zero elements are taken as fixed 
 smoothing parameters. Negative elements signal auto-initialization. Over-rides values supplied in 
 \code{sp} argument to \code{\link{gam}}. Ignored by \code{gamm}.}
-
+\item{pc}{If not \code{NULL}, signals a point constraint: the smooth should pass through zero at the
+point given here (as a vector or list with names corresponding to the smooth names). Never ignored
+if supplied. See \code{\link{identifiability}}. }
   }
 
 \details{The function does not evaluate the variable arguments. To use this function to specify use of
@@ -103,11 +107,11 @@ auto-estimation). Defaults to \code{NULL}.}
 
 Wood, S.N. (2003) Thin plate regression splines. J.R.Statist.Soc.B 65(1):95-114
 
-Wood S.N. (2006) Generalized Additive Models: An Introduction with R. Chapman
+Wood S.N. (2017) Generalized Additive Models: An Introduction with R (2nd edition). Chapman
 and Hall/CRC Press.
 
 
-\url{http://www.maths.bath.ac.uk/~sw283/}
+\url{http://www.maths.bris.ac.uk/~sw15190/}
 
 }
 

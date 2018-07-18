@@ -127,10 +127,10 @@ Some details of how GAMs are represented as mixed models and estimated using
 \code{lme} or \code{gammPQL} in \code{gamm} can be found in Wood (2004 ,2006a,b). In addition \code{gamm} obtains a posterior covariance matrix for the parameters of all the fixed effects and the smooth terms. The approach is similar to that described in Lin & Zhang (1999) - the covariance matrix of the data (or pseudodata in the generalized case) implied by the weights, correlation and random effects structure is obtained, based on the estimates of the parameters of these terms and this is used to obtain the posterior covariance matrix of the fixed and smooth effects. 
 
 The bases used to represent smooth terms are the same as those used in \code{\link{gam}}, although adaptive
-smoothing bases are not available.
+smoothing bases are not available. Prediction from the returned \code{gam} object is straightforward using \code{\link{predict.gam}}, but this will set the random effects to zero. If you want to predict with random effects set to their predicted values then you can adapt the prediction code given in the examples below. 
 
 In the event of \code{lme} convergence failures, consider
-modifying \code{option(mgcv.vc.logrange)}: reducing it helps to remove
+modifying \code{options(mgcv.vc.logrange)}: reducing it helps to remove
 indefiniteness in the likelihood, if that is the problem, but too large a
 reduction can force over or undersmoothing. See \code{\link{notExp2}} for more
 information on this option. Failing that, you can try increasing the
@@ -145,7 +145,8 @@ since these use an improved optimizer.
 \item{gam}{an object of class \code{gam}, less information relating to
 GCV/UBRE model selection. At present this contains enough information to use
 \code{predict}, \code{summary} and \code{print} methods and \code{vis.gam},
-but not to use e.g. the \code{anova} method function to compare models.}
+but not to use e.g. the \code{anova} method function to compare models. This is based
+on the working model when using \code{gammPQL}.}
 \item{lme}{the fitted model object returned by \code{lme} or \code{gammPQL}. Note that the model formulae and grouping 
 structures may appear to be rather bizarre, because of the manner in which the GAMM is split up and the calls to 
 \code{lme} and \code{gammPQL} are constructed.}
@@ -188,11 +189,15 @@ and Hall/CRC Press.
 
 Wang, Y. (1998) Mixed effects smoothing spline analysis of variance. J.R. Statist. Soc. B 60, 159-174
 
-\url{http://www.maths.bath.ac.uk/~sw283/}
+\url{http://www.maths.bris.ac.uk/~sw15190/}
 }
 \author{ Simon N. Wood \email{simon.wood@r-project.org}}
 
 \section{WARNINGS }{
+
+\code{gamm} was a somewhat different argument list to \code{\link{gam}},
+\code{gam} arguments such as \code{gamma} supplied to \code{gamm} will
+just be ignored.  
 
 \code{gamm} performs poorly with binary data, since it uses PQL. It is 
 better to use \code{gam} with \code{s(...,bs="re")} terms, or \code{gamm4}.
@@ -218,7 +223,7 @@ will occasionally fail. See details section for suggestions, or try the
 
 \code{gamm} is usually much slower than \code{gam}, and on some platforms you may need to
 increase the memory available to R in order to use it with large data sets
-(see \code{\link{mem.limits}}).
+(see \code{\link{memory.limit}}).
 
 Note that the weights returned in the fitted GAM object are dummy, and not
 those used by the PQL iteration: this makes partial residual plots look odd.
@@ -226,6 +231,7 @@ those used by the PQL iteration: this makes partial residual plots look odd.
 Note that the \code{gam} object part of the returned object is not complete in
 the sense of having all the elements defined in \code{\link{gamObject}} and
 does not inherit from \code{glm}: hence e.g. multi-model \code{anova} calls will not work.
+It is also based on the working model when PQL is used.
 
 The parameterization used for the smoothing parameters in \code{gamm}, bounds
 them above and below by an effective infinity and effective zero. See
@@ -239,7 +245,7 @@ Linked smoothing parameters and adaptive smoothing are not supported.
 \code{\link{predict.gam}},
   \code{\link{plot.gam}}, \code{\link{summary.gam}}, \code{\link{negbin}}, 
 \code{\link{vis.gam}},\code{\link{pdTens}}, \code{gamm4} (
-\url{http://cran.r-project.org/package=gamm4})
+\url{https://cran.r-project.org/package=gamm4})
  }
 
 \examples{
@@ -260,15 +266,30 @@ plot(b$gam)
 par(op)
 rm(dat)
 
+
 ## Add a factor to the linear predictor, to be modelled as random
 dat <- gamSim(6,n=200,scale=.2,dist="poisson")
-b2<-gamm(y~s(x0)+s(x1)+s(x2),family=poisson,
-         data=dat,random=list(fac=~1))
+b2 <- gamm(y~s(x0)+s(x1)+s(x2),family=poisson,
+           data=dat,random=list(fac=~1))
 plot(b2$gam,pages=1)
 fac <- dat$fac
 rm(dat)
 vis.gam(b2$gam)
 
+## In the generalized case the 'gam' object is based on the working
+## model used in the PQL fitting. Residuals for this are not
+## that useful on their own as the following illustrates...
+
+gam.check(b2$gam) 
+
+## But more useful residuals are easy to produce on a model
+## by model basis. For example...
+
+fv <- exp(fitted(b2$lme)) ## predicted values (including re)
+rsd <- (b2$gam$y - fv)/sqrt(fv) ## Pearson residuals (Poisson case)
+op <- par(mfrow=c(1,2))
+qqnorm(rsd);plot(fv^.5,rsd)
+par(op)
 
 ## now an example with autocorrelated errors....
 n <- 200;sig <- 2
@@ -329,6 +350,22 @@ b <- gamm(y~s(x0,bs="cr")+s(x1,bs="cr")+s(x2,bs="cr")+
 plot(b$gam,pages=1)
 summary(b$gam)
 vis.gam(b$gam)
+
+## Prediction from gam object, optionally adding 
+## in random effects. 
+
+## Extract random effects and make names more convenient...
+refa <- ranef(b$lme,level=5)
+rownames(refa) <- substr(rownames(refa),start=9,stop=20)
+refb <- ranef(b$lme,level=6)
+rownames(refb) <- substr(rownames(refb),start=9,stop=20)
+
+## make a prediction, with random effects zero...
+p0 <- predict(b$gam,data.frame(x0=.3,x1=.6,x2=.98,x3=.77))
+
+## add in effect for fa = "2" and fb="2/4"...
+p <- p0 + refa["2",1] + refb["2/4",1] 
+
 ## and a "spatial" example...
 library(nlme);set.seed(1);n <- 100
 dat <- gamSim(2,n=n,scale=0) ## standard example

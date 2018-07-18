@@ -42,13 +42,15 @@ to the data (e.g. default knot locations).
 \references{
 
 
-\url{http://www.maths.bath.ac.uk/~sw283/}
+\url{http://www.maths.bris.ac.uk/~sw15190/}
 }
 \author{ Simon N. Wood \email{simon.wood@r-project.org}
 
 
 }
-
+\section{WARNINGS }{
+AIC computation does not currently take account of AR model, if used.
+}
 
 \seealso{\code{\link{mgcv-package}}, \code{\link{bam}}
  }
@@ -83,10 +85,9 @@ dat$y <- dat$f + e*3
 dat[c(50,13,3000,3005,3100),]<- NA
 dat1 <- dat[(n-999):n,]
 dat0 <- dat[1:(n-1000),]
-method <- "ML"
 
 b <- bam(y ~ s(x0,bs=bs,k=k)+s(x1,bs=bs,k=k)+s(x2,bs=bs,k=k)+
-           s(x3,bs=bs,k=k),data=dat0,method=method,rho=0.7)
+           s(x3,bs=bs,k=k),data=dat0,rho=0.7)
 
 b1 <- bam.update(b,dat1)
 

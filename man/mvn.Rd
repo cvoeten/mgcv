@@ -3,8 +3,7 @@
 %- Also NEED an `\alias' for EACH other topic documented here.
 \title{Multivariate normal additive models}
 \description{Family for use with \code{\link{gam}} implementing smooth multivariate Gaussian regression. 
-The means for each dimension are given by a separate linear predictor, which may contain smooth components. The 
-Choleski factor of the response precision matrix is estimated as part of fitting.
+The means for each dimension are given by a separate linear predictor, which may contain smooth components. Extra linear predictors may also be specified giving terms which are shared between components (see \code{\link{formula.gam}}). The Choleski factor of the response precision matrix is estimated as part of fitting.
 }
 
 \usage{
@@ -31,6 +30,13 @@ residuals are standardized to be approximately independent standard normal if al
 \author{ Simon N. Wood  \email{simon.wood@r-project.org}
 }
 
+\references{
+Wood, S.N., N. Pya and B. Saefken (2016), Smoothing parameter and
+model selection for general smooth models.
+Journal of the American Statistical Association 111, 1548-1575
+\url{http://dx.doi.org/10.1080/01621459.2016.1180986}
+
+}
 
 \seealso{\code{\link{gaussian}}}
 

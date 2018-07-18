@@ -127,7 +127,7 @@ In addition there are all the elements usually added by \code{smooth.construct} 
 
 Wood, S.N., M.V. Bravington and S.L. Hedley (2008) "Soap film smoothing", J.R.Statist.Soc.B 70(5), 931-955.
 
-\url{http://www.maths.bath.ac.uk/~sw283/}
+\url{http://www.maths.bris.ac.uk/~sw15190/}
 
 }
 \section{WARNINGS }{
@@ -205,10 +205,10 @@ bk <- gam(y~s(v,w,bs="so",xt=list(bnd=fsb,nmax=nmax)),knots=knots)
 plot(bk) ## default plot
 
 ##########################################
-## tensor product example (marked 
-## 'Not run' to reduce CRAN checking load)
+## tensor product example...
 ##########################################
-\dontrun{
+\donttest{
+set.seed(9)
 n <- 10000
 v <- runif(n)*5-1;w<-runif(n)*2-1
 t <- runif(n)
@@ -225,10 +225,10 @@ knots <- data.frame(v=rep(seq(-.5,3,by=.5),4),
                     w=rep(c(-.6,-.3,.3,.6),rep(8,4)))
 
 ## notice NULL element in 'xt' list - to indicate no xt object for "cr" basis...
-bk <- gam(y~ 
- te(v,w,t,bs=c("sf","cr"),k=c(25,4),d=c(2,1),xt=list(list(bnd=fsb,nmax=nmax),NULL))+
- te(v,w,t,bs=c("sw","cr"),k=c(25,4),d=c(2,1),xt=list(list(bnd=fsb,nmax=nmax),NULL))
-          ,knots=knots)
+bk <- gam(y~ te(v,w,t,bs=c("sf","cr"),k=c(25,4),d=c(2,1),
+          xt=list(list(bnd=fsb,nmax=nmax),NULL))+
+          te(v,w,t,bs=c("sw","cr"),k=c(25,4),d=c(2,1),
+	  xt=list(list(bnd=fsb,nmax=nmax),NULL)),knots=knots)
 
 par(mfrow=c(3,2))
 m<-100;n<-50 
@@ -307,17 +307,17 @@ z <- f1(x,y) + rnorm(n)*.1
 
 ## Fit a soap film smooth to the noisy data
 nmax <- 60
-b <- gam(z~s(x,y,k=c(30,15),bs="so",xt=list(bnd=bnd,nmax=nmax)),knots=knots,method="REML")
+b <- gam(z~s(x,y,k=c(30,15),bs="so",xt=list(bnd=bnd,nmax=nmax)),
+         knots=knots,method="REML")
 plot(b) ## default plot
 vis.gam(b,plot.type="contour") ## prettier version
 
 ## trying out separated fits....
 ba <- gam(z~s(x,y,k=c(30,15),bs="sf",xt=list(bnd=bnd,nmax=nmax))+
-          s(x,y,k=c(30,15),bs="sw",xt=list(bnd=bnd,nmax=nmax)),knots=knots,method="REML")
+          s(x,y,k=c(30,15),bs="sw",xt=list(bnd=bnd,nmax=nmax)),
+	  knots=knots,method="REML")
 plot(ba)
 vis.gam(ba,plot.type="contour")
-
-
 }
 
 \keyword{models} \keyword{smooth} \keyword{regression}

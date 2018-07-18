@@ -12,10 +12,11 @@ choise of fitting method, see \code{\link{gam}} arguments \code{method} and \cod
 \usage{
 gam.control(nthreads=1,irls.reg=0.0,epsilon = 1e-07, maxit = 200,
             mgcv.tol=1e-7,mgcv.half=15, trace = FALSE,
-            rank.tol=.Machine$double.eps^0.5,
-            nlm=list(),optim=list(),newton=list(),
-            outerPIsteps=0,idLinksBases=TRUE,scalePenalty=TRUE,
-            keepData=FALSE,scale.est="fletcher") 
+            rank.tol=.Machine$double.eps^0.5,nlm=list(),
+	    optim=list(),newton=list(),outerPIsteps=0,
+	    idLinksBases=TRUE,scalePenalty=TRUE,efs.lspmax=15,
+	    efs.tol=.1,keepData=FALSE,scale.est="fletcher",
+	    edge.correct=FALSE) 
 }
 \arguments{ 
 \item{nthreads}{Some parts of some smoothing parameter selection methods (e.g. REML) can use some
@@ -72,12 +73,22 @@ of the penalty matrices of a smooth relative to its model matrix. This option re
 the penalty matrices to accomodate this problem. Probably should be set to \code{FALSE} 
 if you are linking smoothing parameters but have set \code{idLinkBases} to \code{FALSE}.}
 
+\item{efs.lspmax}{maximum log smoothing parameters to allow under extended Fellner Schall
+smoothing parameter optimization.}
+
+\item{efs.tol}{change in REML to count as negligible when testing for EFS convergence. If the
+step is small and the last 3 steps led to a REML change smaller than this, then stop.}
+
 \item{keepData}{Should a copy of the original \code{data} argument be kept in the \code{gam} 
 object? Strict compatibility with class \code{glm} would keep it, but it wastes space to
 do so. }
 
 \item{scale.est}{How to estimate the scale parameter for exponential family models estimated
 by outer iteration. See \code{\link{gam.scale}}.}
+
+\item{edge.correct}{With RE/ML smoothing parameter selection in \code{gam} using the default Newton RE/ML optimizer, it is possible to improve inference at the
+`completely smooth' edge of the smoothing parameter space, by decreasing
+ smoothing parameters until there is a small increase in the negative RE/ML (e.g. 0.02). Set to \code{TRUE} or to a number representing the target increase to use. Only changes the corrected smoothing parameter matrix, \code{Vc}.}
 }
 
 \details{ 
@@ -121,7 +132,7 @@ Wood, S.N. (2004) Stable and efficient multiple smoothing parameter estimation f
 generalized additive models. J. Amer. Statist. Ass.99:673-686.
 
 
-\url{http://www.maths.bath.ac.uk/~sw283/}
+\url{http://www.maths.bris.ac.uk/~sw15190/}
 
 
 }

@@ -1,5 +1,110 @@
-## (c) Simon N. Wood (ocat, tw, nb, ziP) & Natalya Pya (scat, beta), 
-## 2013, 2014. Released under GPL2.
+## (c) Simon N. Wood & Natalya Pya (scat, beta), 
+## 2013-2017. Released under GPL2.
+## See gam.fit4.r for testing functions fmud.test and fetad.test.
+
+estimate.theta <- function(theta,family,y,mu,scale=1,wt=1,tol=1e-7,attachH=FALSE) {
+## Simple Newton iteration to estimate theta for an extended family,
+## given y and mu. To be iterated with estimation of mu given theta.
+## If used within a PIRLS loop then divergence testing of coef update
+## will have to re-compute pdev after theta update.
+## Not clear best way to handle scale - could optimize here as well
+
+  if (!inherits(family,"extended.family")) stop("not an extended family")
+
+  nlogl <- function(theta,family,y,mu,scale=1,wt=1,deriv=2) {
+    ## compute the negative log likelihood and grad + hess
+    nth <- length(theta) - if (scale<0) 1 else 0
+    if (scale < 0) {
+      scale <- exp(theta[nth+1])
+      theta <- theta[1:nth]
+      get.scale <- TRUE
+    } else get.scale <- FALSE
+    dev <- sum(family$dev.resids(y, mu, wt,theta))/scale
+    if (deriv>0) Dd <- family$Dd(y, mu, theta, wt=wt, level=deriv)
+    ls <- family$ls(y,w=wt,theta=theta,scale=scale)
+    nll <- dev/2 - ls$ls
+   
+    if (deriv>0) {
+      g1 <- colSums(as.matrix(Dd$Dth))/(2*scale)
+      g <- if (get.scale) c(g1,-dev/2) else g1
+      ind <- 1:length(g)
+      g <- g - ls$lsth1[ind]
+      ## g <- if (deriv>0) colSums(as.matrix(Dd$Dth))/(2*scale) - ls$lsth1[1:nth] else NULL
+    } else g <- NULL
+    if (deriv>1) {
+      x <- colSums(as.matrix(Dd$Dth2))/(2*scale)
+      Dth2 <- matrix(0,nth,nth)
+      k <- 0
+      for (i in 1:nth) for (j in i:nth) {
+        k <- k + 1
+        Dth2[i,j] <- Dth2[j,i] <- x[k]  
+      }
+      if (get.scale) Dth2 <- rbind(cbind(Dth2,-g1),c(-g1,dev/2))
+      H <- Dth2 - as.matrix(ls$lsth2)[ind,ind]
+      # H <- Dth2 - as.matrix(ls$lsth2)[1:nth,1:nth]
+    } else H <- NULL
+    list(nll=nll,g=g,H=H)
+  } ## nlogl
+  if (scale<0) theta <- c(theta,log(var(y)*.1))
+  nll <- nlogl(theta,family,y,mu,scale,wt,2)
+  step.failed <- FALSE
+  for (i in 1:100) { ## main Newton loop
+    eh <- eigen(nll$H,symmetric=TRUE)
+    pdef <- sum(eh$values <= 0)==0
+    if (!pdef) { ## Make the Hessian pos def
+      eh$values <- abs(eh$values)
+      thresh <- max(eh$values) * 1e-7
+      eh$values[eh$values<thresh] <- thresh
+    }
+    ## compute step = -solve(H,g) (via eigen decomp)...
+    step <- - drop(eh$vectors %*% ((t(eh$vectors) %*% nll$g)/eh$values))
+    ## limit the step length...
+    ms <- max(abs(step))
+   if (ms>4) step <- step*4/ms
+
+    nll1 <- nlogl(theta+step,family,y,mu,scale,wt,2)
+    iter <- 0
+    while (nll1$nll > nll$nll) { ## step halving 
+      step <- step/2; iter <- iter + 1
+      if (sum(theta!=theta+step)==0||iter>25) {
+        step.failed <- TRUE
+	break
+      }
+      nll1 <- nlogl(theta+step,family,y,mu,scale,wt,0)
+    } ## step halving
+    if (step.failed) break
+    theta <- theta + step ## accept updated theta
+    ## accept log lik and derivs ...
+    nll <- if (iter>0) nlogl(theta,family,y,mu,scale,wt,2) else nll1
+    ## convergence checking...
+    if (sum(abs(nll$g) > tol*abs(nll$nll))==0) break 
+  } ## main Newton loop
+  if (step.failed) warning("step failure in theta estimation")
+  if (attachH) attr(theta,"H") <- nll$H
+  theta
+} ## estimate.theta
+
+find.null.dev <- function(family,y,eta,offset,weights) {
+## obtain the null deviance given y, best fit mu and
+## prior weights
+   fnull <- function(gamma,family,y,wt,offset) {
+      ## evaluate deviance for single parameter model
+      mu <- family$linkinv(gamma+offset)
+      sum(family$dev.resids(y,mu, wt))
+   }
+   mu <- family$linkinv(eta-offset)
+   mum <- mean(mu*weights)/mean(weights) ## initial value
+   eta <- family$linkfun(mum) ## work on l.p. scale
+   deta <- abs(eta)*.1 + 1  ## search interval half width
+   ok <- FALSE
+   while (!ok) {
+     search.int <- c(eta-deta,eta+deta)
+     op <- optimize(fnull,interval=search.int,family=family,y=y,wt = weights,offset=offset)
+     if (op$minimum > search.int[1] && op$minimum < search.int[2]) ok <- TRUE else deta <- deta*2
+  }
+  op$objective
+} ## find.null.dev
+
 
 ## extended families for mgcv, standard components. 
 ## family - name of family character string
@@ -11,18 +116,20 @@
 ##       function fix.family.link.extended.family with functions 
 ##       gkg where k is 2,3 or 4 giving the kth derivative of the 
 ##       link over the first derivative of the link to the power k.
-##       for non standard links these functions muct be supplied.
+##       for non standard links these functions must be supplied.
 ## dev.resids - function computing deviance residuals.
 ## Dd - function returning derivatives of deviance residuals w.r.t. mu and theta. 
-## aic - function computing twice - log likelihood for 2df to be added to.
+## aic - function computing twice -ve log likelihood for 2df to be added to.
 ## initialize - expression to be evaluated in gam.fit4 and initial.spg 
 ##              to initialize mu or eta.
-## preinitialize - optional expression evaluated in estimate.gam to 
-##                 e.g. initialize theta parameters (see e.g. ocat)
-## postproc - expression to evaluate in estimate.gam after fitting (see e.g. betar)
+## preinitialize - optional function of y and family, returning a list with optional elements
+##                 Theta - intitial Theta and y - modified y for use in fitting (see e.g. ocat and betar)
+## postproc - function with arguments family, y, prior.weights, fitted, linear.predictors, offset, intercept
+##            to call after fit to compute (optionally) the label for the family, deviance and null deviance.
+##            See ocat for simple example and betar or ziP for complicated. Called in estimate.gam.
 ## ls - function to evaluated log saturated likelihood and derivatives w.r.t.
 ##      phi and theta for use in RE/ML optimization. If deviance used is just -2 log 
-##      lik. can njust return zeroes. 
+##      lik. can just return zeroes. 
 ## validmu, valideta - functions used to test whether mu/eta are valid.      
 ## n.theta - number of theta parameters.
 ## no.r.sq - optional TRUE/FALSE indicating whether r^2 can be computed for family
@@ -33,8 +140,8 @@
 ## residuals - optional function for computing residuals.
 ## predict - optional function for predicting from model, called by predict.gam.
 ## family$data - optional list storing any family specific data for use, e.g. in predict
-##               function.
-
+##               function. - deprecated (commented out below - appears to be used nowhere)
+## scale - < 0 to estimate. ignored if NULL 
 
 
 ## extended family object for ordered categorical
@@ -42,7 +149,7 @@
 ocat <- function(theta=NULL,link="identity",R=NULL) {
 ## extended family object for ordered categorical model.
 ## one of theta and R must be supplied. length(theta) == R-2.
-## weights are ignored.
+## weights are ignored. #! is stuff removed under re-definition of ls as 0
   linktemp <- substitute(link)
   if (!is.character(linktemp)) linktemp <- deparse(linktemp)
   if (linktemp %in% c("identity")) stats <- make.link(linktemp)
@@ -88,10 +195,15 @@ ocat <- function(theta=NULL,link="identity",R=NULL) {
     }
     theta
   }
-  postproc <- expression({
-    object$family$family <- 
-    paste("Ordered Categorical(",paste(round(object$family$getTheta(TRUE),2),collapse=","),")",sep="")
-  })
+
+  postproc <- function(family,y,prior.weights,fitted,linear.predictors,offset,intercept) {
+    posr <- list()
+    ## null.deviance needs to be corrected...
+    posr$null.deviance <- find.null.dev(family,y,eta=linear.predictors,offset,prior.weights)
+    posr$family <- 
+    paste("Ordered Categorical(",paste(round(family$getTheta(TRUE),2),collapse=","),")",sep="")
+    posr
+  }
 
   validmu <- function(mu) all(is.finite(mu))
 
@@ -133,17 +245,17 @@ ocat <- function(theta=NULL,link="identity",R=NULL) {
     ##f <- pmax(f1 - f0,.Machine$double.eps)
     f <- Fdiff(al0mu,al1mu)
     ##a1 <- f1^2 - f1;a0 <- f0^2 - f0; a <- a1 -a0
-    al1al0 <- (al1-al0)/2;al0al1 <- (al0-al1)/2
+#!    al1al0 <- (al1-al0)/2;al0al1 <- (al0-al1)/2
     ##g1 <- F(al1al0);g0 <- F(al0al1)
     ##A <- pmax(g1 - g0,.Machine$double.eps)
-    A <- Fdiff(al0al1,al1al0)
-    rsd <- 2*(log(A)-log(f))
+#!    A <- Fdiff(al0al1,al1al0)
+    rsd <- -2*log(f) #! 2*(log(A)-log(f))
     attr(rsd,"sign") <- s
     rsd
   } ## end of dev.resids
 
   Dd <- function(y, mu, theta, wt=NULL, level=0) {
-  ## derivatives of the deviance...
+  ## derivatives of the ocat deviance...
    # F <- function(x) { ## e^(x)/(1+e^x) without overflow
    #   h <- ind <- x > 0; h[ind] <- 1/(exp(-x[ind]) + 1)
    #   x <- exp(x[!ind]); h[!ind] <- (x/(1+x))
@@ -207,10 +319,10 @@ ocat <- function(theta=NULL,link="identity",R=NULL) {
     ## a1 <- f1^2 - f1;a0 <- f0^2 - f0; 
     a <- a1 - a0
     
-    al1al0 <- (al1-al0)/2; al0al1 <- (al0-al1)/2
+    #!al1al0 <- (al1-al0)/2; #! al0al1 <- (al0-al1)/2
     ##g1 <- F(al1al0);g0 <- F(al0al1)
     ##A <- pmax(g1 - g0,.Machine$double.eps)
-    A <- Fdiff(al0al1,al1al0)
+#!    A <- Fdiff(al0al1,al1al0)
     if (level>=0) {
       ## b1 <- f1 - 3 * f1^2 + 2 * f1^3;b0 <- f0 - 3 * f0^2 + 2 * f0^3  
       b1 <- r1$bj;b0 <- r0$bj
@@ -221,10 +333,10 @@ ocat <- function(theta=NULL,link="identity",R=NULL) {
       ##c0 <- -f0 + 7 * f0^2 - 12* f0^3 + 6 * f0^4
       c1 <- r1$cj;c0 <- r0$cj
       c <- c1 - c0
-      R1 <- abcd(al1al0,level-2) 
-      R0 <- abcd(al0al1,level-2)
+#!      R1 <- abcd(al1al0,level-2) 
+#!      R0 <- abcd(al0al1,level-2)
       ## B <- g1^2 - g1 + g0^2 - g0
-      B <- R1$aj + R0$aj
+#!     B <- R1$aj + R0$aj
     }
     if (level>1) {
       ##d1 <- f1 - 15 * f1^2 + 50 * f1^3 - 60 * f1^4 + 24 * f1^5
@@ -232,14 +344,14 @@ ocat <- function(theta=NULL,link="identity",R=NULL) {
       d1 <- r1$dj;d0 <- r0$dj
       d <- d1 - d0
       ##C <- 2 * g1^3 - 3 * g1^2 + g1 - 2 * g0^3 + 3 * g0^2 - g0
-      C <- R1$bj - R0$bj
+#!      C <- R1$bj - R0$bj
     }
 
     oo <- list(D=NULL,Dmu=NULL,Dmu2=NULL,Dth=NULL,Dmuth=NULL,
              Dmu2th=NULL)
     n <- length(y)
     ## deviance...
-    oo$D <- 2*(log(A)-log(f))
+    oo$D <- -2 * log(f) #! 2*(log(A)-log(f))
     if (level >= 0) { ## get derivatives used in coefficient estimation
       oo$Dmu <- -2 * a / f
       a2 <- a^2
@@ -254,7 +366,8 @@ ocat <- function(theta=NULL,link="identity",R=NULL) {
       Dmua1 <- -2 * (a1 * a /f - b1)/f
       Dmu2a0 <- -2* (c0 + (a0*(2*a2/f - b)- 2*b0*a  )/f)/f
       Dmu2a1 <- 2*(c1  + (2*(a1*a2/f - b1*a) - a1*b)/f)/f
-      Da0 <- B/A - 2*a0/f; Da1 <- -B/A + 2 * a1/f 
+      Da0 <- -2*a0/f #! + B/A; 
+      Da1 <-  2 * a1/f #! - B/A 
       ## now transform to derivatives w.r.t. theta...
       oo$Dmu2th <- oo$Dmuth <- oo$Dth <- matrix(0,n,R-2)
       for (k in 1:(R-2)) { 
@@ -275,7 +388,8 @@ ocat <- function(theta=NULL,link="identity",R=NULL) {
         oo$Dth[ind,k] <- Da0[ind]*etk
         oo$Dmuth[ind,k] <- Dmua0[ind]*etk
         oo$Dmu2th[ind,k] <- Dmu2a0[ind]*etk 
-      } 
+      }
+      oo$EDmu2th <- oo$Dmu2th
     }  
     if (level >1) { ## and the second derivative components 
       oo$Dmu4 <- 2*((3*b^2 + 4*a*c)/f + a2*(6*a2/f - 12*b)/f2 - d)/f
@@ -297,9 +411,9 @@ ocat <- function(theta=NULL,link="identity",R=NULL) {
       Dmu2a0a1 <- 0 ## (8*a0*b1*a/f^3 + 8*b0*a1*a/f^3 - 12*a0*a1*a/f^4 - 4*b0*b1/f^2 +
                     ## 4*a0*a1*b/f^3 - 2*c0*a1/f^2 - 2*c1*a0/f^2)
 
-      Da0a0 <- 2 * (b0 + a0^2/f)/f + .5 * (C - B^2/A)/A
-      Da1a1 <- -2* (b1 - a1^2/f)/f + .5 * (C - B^2/A)/A
-      Da0a1 <- -2*a0*a1/f2 - .5 * (C - B^2/A)/A
+      Da0a0 <- 2 * (b0 + a0^2/f)/f #! + .5 * (C - B^2/A)/A
+      Da1a1 <- -2* (b1 - a1^2/f)/f #! + .5 * (C - B^2/A)/A
+      Da0a1 <- -2*a0*a1/f2 #! - .5 * (C - B^2/A)/A
 
       ## now transform to derivatives w.r.t. theta...
       n2d <- (R-2)*(R-1)/2
@@ -328,7 +442,7 @@ ocat <- function(theta=NULL,link="identity",R=NULL) {
       } 
     }
     oo
-  } ## end of Dd
+  } ## end of Dd (ocat)
  
   aic <- function(y, mu, theta=NULL, wt, dev) {
   
@@ -359,83 +473,18 @@ ocat <- function(theta=NULL,link="identity",R=NULL) {
     -2*sum(log(f))
   } ## end aic
 
-  ls <- function(y,w,n,theta,scale) {
-    ## the log saturated likelihood function.
-    F <- function(x) {
-      h <- ind <- x > 0; h[ind] <- 1/(exp(-x[ind]) + 1)
-      x <- exp(x[!ind]); h[!ind] <- (x/(1+x))
-      h 
-    } 
-    Fdiff <- function(a,b) {
-      ## cancellation resistent F(b)-F(a), b>a
-      h <- rep(1,length(b)); h[b>0] <- -1; eb <- exp(b*h)
-      h <- h*0+1; h[a>0] <- -1; ea <- exp(a*h)
-      ind <- b<0;bi <- eb[ind];ai <- ea[ind]
-      h[ind] <- bi/(1+bi) - ai/(1+ai)
-      ind1 <- a>0;bi <- eb[ind1];ai <- ea[ind1]
-      h[ind1] <- (ai-bi)/((ai+1)*(bi+1))
-      ind <- !ind & !ind1;bi <- eb[ind];ai <- ea[ind]
-      h[ind] <- (1-ai*bi)/((bi+1)*(ai+1))
-      h
-    }
-    R = length(theta)+2
-    alpha <- rep(0,R+1) ## the thresholds
-    alpha[1] <- -Inf;alpha[R+1] <- Inf
-    alpha[2] <- -1
-    if (R > 2) { 
-      ind <- 3:R
-      alpha[ind] <- alpha[2] + cumsum(exp(theta))
-    } 
-    al1 <- alpha[y+1];al0 = alpha[y]
-    g1 <- F((al1-al0)/2);g0 <- F((al0-al1)/2)
-    ##A <- pmax(g1 - g0,.Machine$double.eps)
-    A <- Fdiff((al0-al1)/2,(al1-al0)/2)
-    ls <- sum(log(A))
-    B <- g1^2 - g1 + g0^2 - g0 
-    C <- 2 * g1^3 - 3 * g1^2 + g1 - 2 * g0^3 + 3 * g0^2 - g0
-    Da0 <- .5 * B/A ; Da1 <- -0.5 *B/A 
-    Da0a0 <- .25 * C/A - .25 * B^2/A^2
-    Da1a1 <- .25 * C/A - .25 * B^2/A^2
-    Da0a1 <- - .25 * C/A + .25 * B^2/A^2
-    i <- 0 
-    n2d <- (R-2)*(R-1)/2
-    n <- length(y)
-    Dth <- matrix(0,n,R-2)
-    Dth2 <- matrix(0,n,n2d)
-    for (j in 1:(R-2)) for (k in j:(R-2)) { 
-      i <- i + 1 ## the second deriv col
-      ind <- y >= j ## rest are zero
-      ar1.k <- ar.k <- rep(exp(theta[k]),n)
-      ar.k[y==R | y <= k] <- 0; ar1.k[y<k+2] <- 0
-      ar.j <- ar1.j <- rep(exp(theta[j]),n)
-      ar.j[y==R | y <= j] <- 0; ar1.j[y<j+2] <- 0
-      ar.kj <- ar1.kj <- rep(0,n)
-      if (k==j) {
-        ar.kj[y>k&y<R] <- exp(theta[k])
-        ar1.kj[y>k+1] <- exp(theta[k])
-        Dth[ind,k] <- Da1[ind]*ar.k[ind]  + Da0[ind]*ar1.k[ind]
-      }
-      Dth2[,i] <- Da1a1*ar.k*ar.j + Da0a1*ar.k*ar1.j + Da1 * ar.kj +
-                  Da0a0*ar1.k*ar1.j + Da0a1*ar1.k*ar.j + Da0 * ar1.kj
-    } 
-    lsth2=colSums(Dth2)
-    if (R>2) {
-      ls2 <- matrix(0,R-2,R-2);ii <- 0
-      for (i in 1:(R-2)) for (j in i:(R-2)) { 
-        ii <- ii + 1 
-        ls2[i,j] <- ls2[j,i] <- lsth2[ii]
-      } 
-    }
-    list(ls=ls,lsth1=colSums(Dth),lsth2=ls2)
+  ls <- function(y,w,theta,scale) {
+    ## the log saturated likelihood function. 
+    return(list(ls=0,lsth1=rep(0,R-2),lsth2=matrix(0,R-2,R-2)))
   } ## end of ls
   
   ## initialization is interesting -- needs to be with reference to initial cut-points
   ## so that mu puts each obs in correct category initially...
  
-  preinitialize <- expression({
+  preinitialize <- function(y,family) {
     ocat.ini <- function(R,y) {
     ## initialize theta from raw counts in each category
-      if (R<3) return
+      if (R<3) return()
       y <- c(1:R,y) ## make sure there is *something* in each class
       p <- cumsum(tabulate(y[is.finite(y)])/length(y[is.finite(y)]))
       eta <- if (p[1]==0) 5 else -1 - log(p[1]/(1-p[1])) ## mean of latent
@@ -445,17 +494,18 @@ ocat <- function(theta=NULL,link="identity",R=NULL) {
       theta[theta <= 0.01] <- 0.01
       theta <- log(theta)
     }
-    R3 <- length(G$family$getTheta())+2
-    if (R3>2&&G$family$n.theta>0) { 
-      Theta <- ocat.ini(R3,G$y)
-      G$family$putTheta(Theta)
+    R3 <- length(family$getTheta())+2
+    if (!is.numeric(y)) stop("Response should be integer class labels")
+    if (R3>2&&family$n.theta>0) { 
+      Theta <- ocat.ini(R3,y)
+      return(list(Theta=Theta))
     } 
-  })
+  }
 
   initialize <- expression({ 
     R <- length(family$getTheta())+2 ## don't use n.theta as it's used to signal fixed theta
     if (any(y < 1)||any(y>R)) stop("values out of range")
-    n <- rep(1, nobs)
+    ## n <- rep(1, nobs)
     ## get the cut points... 
     alpha <- rep(0,R+1) ## the thresholds
     alpha[1] <- -2;alpha[2] <- -1
@@ -630,7 +680,7 @@ nb <- function (theta = NULL, link = "log") {
     }
     
     Dd <- function(y, mu, theta, wt, level=0) {
-    ## derivatives of the deviance...
+    ## derivatives of the nb deviance...
       ##ltheta <- theta
       theta <- exp(theta)
       yth <- y + theta
@@ -647,6 +697,7 @@ nb <- function (theta = NULL, link = "log") {
         r$Dmuth <- 2 * wt * theta * (1 - yth/muth)/muth
         r$Dmu3 <- 4 * wt * (yth/muth^3 - y/mu^3)
         r$Dmu2th <- 2 * wt * theta * (2*yth/muth - 1)/muth^2
+	r$EDmu2th <- 2 * wt / muth^2
       } 
       if (level>1) { ## whole damn lot
         r$Dmu4 <- 2 * wt * (6*y/mu^4 - 6*yth/muth^4)
@@ -669,9 +720,10 @@ nb <- function (theta = NULL, link = "log") {
         2 * sum(term * wt)
     }
     
-    ls <- function(y,w,n,theta,scale) {
+    ls <- function(y,w,theta,scale) {
        ## the log saturated likelihood function.
        Theta <- exp(theta)
+       #vec <- !is.null(attr(theta,"vec.grad")) ## lsth by component?
        ylogy <- y;ind <- y>0;ylogy[ind] <- y[ind]*log(y[ind])
        term <- (y + Theta) * log(y + Theta) - ylogy +
             lgamma(y + 1) - Theta * log(Theta) + lgamma(Theta) -
@@ -683,6 +735,7 @@ nb <- function (theta = NULL, link = "log") {
        psi0.yth <- digamma(yth) 
        psi0.th <- digamma(Theta)
        term <- Theta * (lyth - psi0.yth + psi0.th-theta)
+       #lsth <- if (vec) -term*w else -sum(term*w)
        lsth <- -sum(term*w)
        ## second deriv wrt theta...
        psi1.yth <- trigamma(yth) 
@@ -696,14 +749,17 @@ nb <- function (theta = NULL, link = "log") {
 
     initialize <- expression({
         if (any(y < 0)) stop("negative values not allowed for the negative binomial family")
-        n <- rep(1, nobs)
+        ##n <- rep(1, nobs)
         mustart <- y + (y == 0)/6
     })
   
-    postproc <- expression({
-      object$family$family <- 
-      paste("Negative Binomial(",round(object$family$getTheta(TRUE),3),")",sep="")
-    })
+    postproc <- function(family,y,prior.weights,fitted,linear.predictors,offset,intercept){
+      posr <- list()
+      posr$null.deviance <- find.null.dev(family,y,eta=linear.predictors,offset,prior.weights)
+      posr$family <- 
+      paste("Negative Binomial(",round(family$getTheta(TRUE),3),")",sep="")
+      posr
+    }
 
     rd <- function(mu,wt,scale) {
       Theta <- exp(get(".Theta"))
@@ -791,11 +847,11 @@ tw <- function (theta = NULL, link = "log",a=1.01,b=1.99) {
     y1 <- y + (y == 0)
     theta <- if (p == 1) log(y1/mu) else (y1^(1 - p) - mu^(1 - p))/(1 - p)
     kappa <- if (p == 2) log(y1/mu) else (y^(2 - p) - mu^(2 - p))/(2 - p)
-    2 * (y * theta - kappa) * wt
+    pmax(2 * (y * theta - kappa) * wt,0)
   }
     
   Dd <- function(y, mu, theta, wt, level=0) {
-  ## derivatives of the deviance...
+  ## derivatives of the tw deviance...
     a <- get(".a");b <- get(".b")
     th <- theta
     p <- if (th>0) (b+a*exp(-th))/(1+exp(-th)) else (b*exp(th)+a)/(exp(th)+1)
@@ -828,6 +884,8 @@ tw <- function (theta = NULL, link = "log",a=1.01,b=1.99) {
         mup1 <-  mu^(-p-1)
         r$Dmu3 <- -2 * wt * mup1*p*(y/mu*(p+1) + 1-p)    
         r$Dmu2th <- 2 * wt  * (mup1*y*(1-p*logmu)-(logmu*(1-p)+1)/mup )*dpth1
+	r$EDmu3 <- -2*wt*p*mup1
+	r$EDmu2th <- -2*wt*logmu/mup*dpth1
       } 
       if (level>1) { ## whole damn lot
         mup2 <- mup1/mu
@@ -858,24 +916,32 @@ tw <- function (theta = NULL, link = "log",a=1.01,b=1.99) {
             wt) + 2
     }
 
-    ls <- function(y, w, n, theta, scale) {
+    ls <- function(y, w, theta, scale) {
         ## evaluate saturated log likelihood + derivs w.r.t. working params and log(scale)
         a <- get(".a");b <- get(".b")
-        LS <- colSums(w * ldTweedie(y, y, rho=log(scale), theta=theta,a=a,b=b))
-        lsth1 <- c(LS[4],LS[2])
+	#vec <- !is.null(attr(theta,"vec.grad"))
+        LS <- w * ldTweedie(y, y, rho=log(scale), theta=theta,a=a,b=b)
+	#if (vec) lsth1 <- LS[,c(4,2)]
+	LS <- colSums(LS)
+        #if (!vec) lsth1 <- c(LS[4],LS[2])
+	lsth1 <- c(LS[4],LS[2])
         lsth2 <- matrix(c(LS[5],LS[6],LS[6],LS[3]),2,2)
         list(ls=LS[1],lsth1=lsth1,lsth2=lsth2)
     }
 
  
     initialize <- expression({
-        n <- rep(1, nobs)
+        ##n <- rep(1, nobs)
         mustart <- y + (y == 0)*.1
     })
-    postproc <- expression({
-      object$family$family <- 
-      paste("Tweedie(p=",round(object$family$getTheta(TRUE),3),")",sep="")
-    })
+    
+    postproc <- function(family,y,prior.weights,fitted,linear.predictors,offset,intercept) {
+      posr <- list()
+      posr$null.deviance <- find.null.dev(family,y,eta=linear.predictors,offset,prior.weights)
+      posr$family <- 
+      paste("Tweedie(p=",round(family$getTheta(TRUE),3),")",sep="")
+      posr
+    }
   
     rd <- function(mu,wt,scale) {
      th <- get(".Theta") 
@@ -930,7 +996,7 @@ betar <- function (theta = NULL, link = "logit",eps=.Machine$double.eps*100) {
            n.theta <- 0 ## signal that there are no theta parameters to estimate
        } else iniTheta <- log(-theta) ## initial theta supplied
     } else iniTheta <- 0 ##  inital log theta value
-    
+     
     env <- new.env(parent = .GlobalEnv)
     assign(".Theta", iniTheta, envir = env)
     assign(".betarEps",eps, envir = env)
@@ -945,7 +1011,7 @@ betar <- function (theta = NULL, link = "logit",eps=.Machine$double.eps*100) {
     validmu <- function(mu) all(mu > 0 & mu < 1)
 
     dev.resids <- function(y, mu, wt,theta=NULL) {
-    ## '-'2*loglik instead of deviance in REML/ML expression
+    ## '-2*loglik' instead of deviance in REML/ML expression
       if (is.null(theta)) theta <- get(".Theta")
       theta <- exp(theta) ## note log theta supplied
       muth <- mu*theta
@@ -983,7 +1049,7 @@ betar <- function (theta = NULL, link = "logit",eps=.Machine$double.eps*100) {
         r$Dth <- 2 * wt *theta*(-mu*log.yoney - log1p(-y)+ mu*psi0.muth+onemu*psi0.onemuth -psi0.th) 
         r$Dmuth <- r$Dmu + 2 * wt * theta^2*(mu*psi1.muth -onemu*psi1.onemuth)
         r$Dmu3 <- 2 * wt *theta^3 * (psi2.muth - psi2.onemuth) 
-        r$Dmu2th <- 2* r$Dmu2 + 2 * wt * theta^3* (mu*psi2.muth + onemu*psi2.onemuth)
+        r$EDmu2th <- r$Dmu2th <- 2* r$Dmu2 + 2 * wt * theta^3* (mu*psi2.muth + onemu*psi2.onemuth)
       } 
       if (level>1) { ## whole lot
         r$Dmu4 <- 2 * wt *theta^4 * (psi3.muth+psi3.onemuth) 
@@ -1006,7 +1072,7 @@ betar <- function (theta = NULL, link = "logit",eps=.Machine$double.eps*100) {
         2 * sum(term * wt)
     }
     
-    ls <- function(y,w,n,theta,scale) {
+    ls <- function(y,w,theta,scale) {
        ## the log saturated likelihood function.
        ## ls is defined as zero for REML/ML expression as deviance is defined as -2*log.lik 
        list(ls=0,## saturated log likelihood
@@ -1018,10 +1084,16 @@ betar <- function (theta = NULL, link = "logit",eps=.Machine$double.eps*100) {
     ## preinitialization to reset G$y values of <=0 and >=1... 
     ## code to evaluate in estimate.gam...
     ## reset G$y values of <=0 and >= 1 to eps and 1-eps... 
-    preinitialize <- NULL ## keep codetools happy
-    eval(parse(text=paste("preinitialize <- expression({\n eps <- ",eps,
-         "\n G$y[G$y >= 1-eps] <- 1 - eps\n  G$y[G$y<= eps] <- eps })")))
-    
+    #preinitialize <- NULL ## keep codetools happy
+    #eval(parse(text=paste("preinitialize <- expression({\n eps <- ",eps,
+    #     "\n G$y[G$y >= 1-eps] <- 1 - eps\n  G$y[G$y<= eps] <- eps })")))
+
+    preinitialize <- function(y,family) {
+      eps <- get(".betarEps")
+      y[y >= 1-eps] <- 1 - eps;y[y<= eps] <- eps
+      return(list(y=y))
+    }
+
  #   preinitialize <- expression({
  #     eps <- 1e-7 
  #     G$y[G$y >= 1-eps] <- 1 - eps
@@ -1100,26 +1172,31 @@ betar <- function (theta = NULL, link = "logit",eps=.Machine$double.eps*100) {
     } ## saturated.ll
 
 
-    postproc <- expression({
+    ## computes deviance, null deviance, family label
+    ## requires prior weights, family, y, fitted values, offset, intercept indicator
+
+    postproc <- function(family,y,prior.weights,fitted,linear.predictors,offset,intercept) {
     ## code to evaluate in estimate.gam, to find the saturated
     ## loglik by Newton method
     ## searching for the mu (on logit scale) that max loglik given theta...
-      wts <- object$prior.weights
-      theta <- object$family$getTheta(trans=TRUE) ## exp theta
-      lf <- object$family$saturated.ll(G$y, wts,theta)
+      # wts <- object$prior.weights
+      theta <- family$getTheta(trans=TRUE) ## exp theta
+      lf <- family$saturated.ll(y, prior.weights,theta)
       ## storing the saturated loglik for each datum...
-      object$family$data <- list(ls = lf$term,mu.ls = lf$mu)   
-      l2 <- object$family$dev.resids(G$y,object$fitted.values,wts)
-      object$deviance <- 2*lf$f + sum(l2)
-      wtdmu <- if (G$intercept) sum(wts * G$y)/sum(wts) 
-              else object$family$linkinv(G$offset)
-      object$null.deviance <- 2*lf$f + sum(object$family$dev.resids(G$y, wtdmu, wts))
-      object$family$family <- 
+      ##object$family$data <- list(ls = lf$term,mu.ls = lf$mu)   
+      l2 <- family$dev.resids(y,fitted,prior.weights)
+      posr <- list()
+      posr$deviance <- 2*lf$f + sum(l2)
+      wtdmu <- if (intercept) sum(prior.weights * y)/sum(prior.weights) 
+              else family$linkinv(offset)
+      posr$null.deviance <- 2*lf$f + sum(family$dev.resids(y, wtdmu, prior.weights))
+      posr$family <- 
       paste("Beta regression(",round(theta,3),")",sep="")
-    })
+      posr
+    } ## postproc
 
     initialize <- expression({
-        n <- rep(1, nobs)
+        ##n <- rep(1, nobs)
         mustart <- y 
     })
 
@@ -1132,12 +1209,9 @@ betar <- function (theta = NULL, link = "logit",eps=.Machine$double.eps*100) {
         y <- object$y
         mu <- object$fitted.values
         wts <- object$prior.weights
-     #   sim <- attr(y,"simula")
-     #   if (!is.null(sim)) {  ## if response values simulated, Newton search called to get saturated log.lik
-           lf <- object$family$saturated.ll(y, wts,object$family$getTheta(TRUE))
-           object$family$data$ls <- lf$term  
-     #   }
-        res <- 2*object$family$data$ls + object$family$dev.resids(y,mu,wts)
+        lf <- object$family$saturated.ll(y, wts,object$family$getTheta(TRUE))
+        #object$family$data$ls <- lf$term  
+        res <- 2*lf$term + object$family$dev.resids(y,mu,wts)
         res[res<0] <- 0
         s <- sign(y-mu)
         res <- sqrt(res) * s   
@@ -1169,7 +1243,7 @@ betar <- function (theta = NULL, link = "logit",eps=.Machine$double.eps*100) {
 
     environment(dev.resids) <- environment(aic) <- environment(getTheta) <- 
     environment(rd)<- environment(qf) <- environment(variance) <- environment(putTheta) <-
-    environment(saturated.ll) <- env
+    environment(saturated.ll) <- environment(preinitialize) <- env
 
     structure(list(family = "Beta regression", link = linktemp, linkfun = stats$linkfun,
         linkinv = stats$linkinv, dev.resids = dev.resids,Dd=Dd, variance=variance,
@@ -1185,7 +1259,7 @@ betar <- function (theta = NULL, link = "logit",eps=.Machine$double.eps*100) {
   
 ## scaled t (Natalya Pya) ...
 
-scat <- function (theta = NULL, link = "identity") { 
+scat <- function (theta = NULL, link = "identity",min.df = 3) { 
 ## Extended family object for scaled t distribution
 ## length(theta)=2; log theta supplied. 
 ## Written by Natalya Pya.
@@ -1206,11 +1280,14 @@ scat <- function (theta = NULL, link = "identity") {
     ## Theta <-  NULL;
     n.theta <- 2
     if (!is.null(theta)&&sum(theta==0)==0) {
-      if (abs(theta[1]<2)) stop("scaled t df must be >2")
+      if (abs(theta[1]<=min.df)) {
+        min.df <- 0.9*abs(theta[1])
+        warning("Supplied df below min.df. min.df reset")
+      }	
       if (sum(theta<0)) { 
-        iniTheta <- c(log(abs(theta[1])-2),log(abs(theta[2]))) ## initial theta supplied
+        iniTheta <- c(log(abs(theta[1])-min.df),log(abs(theta[2]))) ## initial theta supplied
       } else { ## fixed theta supplied
-        iniTheta <- c(log(theta[1]-2),log(theta[2])) 
+        iniTheta <- c(log(theta[1]-min.df),log(theta[2])) 
         n.theta <- 0 ## no thetas to estimate
       }
     } else iniTheta <- c(-2,-1) ## inital log theta value
@@ -1219,15 +1296,17 @@ scat <- function (theta = NULL, link = "identity") {
     assign(".Theta", iniTheta, envir = env)
     getTheta <- function(trans=FALSE) { 
     ## trans transforms to the original scale...
-      th <- get(".Theta")
-      if (trans) { th <- exp(th); th[1] <- th[1] + 2  }
+      th <- get(".Theta");min.df <- get(".min.df")
+      if (trans) { th <- exp(th); th[1] <- th[1] + min.df  }
       th
     }
     putTheta <- function(theta) assign(".Theta", theta,envir=environment(sys.function()))
+    assign(".min.df", min.df, envir = env)
 
     variance <- function(mu) { 
         th <- get(".Theta")
-        nu <- exp(th[1])+2; sig <- exp(th[2])
+	min.df <- get(".min.df")
+        nu <- exp(th[1])+min.df; sig <- exp(th[2])
         sig^2*nu/(nu-2)
     }
 
@@ -1235,15 +1314,17 @@ scat <- function (theta = NULL, link = "identity") {
 
    dev.resids <- function(y, mu, wt,theta=NULL) {
       if (is.null(theta)) theta <- get(".Theta")
-      nu <- exp(theta[1])+2; sig <- exp(theta[2])
+      min.df <- get(".min.df")
+      nu <- exp(theta[1])+min.df; sig <- exp(theta[2])
       wt * (nu + 1)*log1p((1/nu)*((y-mu)/sig)^2)
     }
     
     Dd <- function(y, mu, theta, wt, level=0) {
-    ## derivatives of the deviance...
+    ## derivatives of the scat deviance...
       ## ltheta <- theta
-      nu <- exp(theta[1])+2; sig <- exp(theta[2])
-      nu1 <- nu + 1;  ym <- y - mu; nu2 <- nu - 2;
+      min.df <- get(".min.df")
+      nu <- exp(theta[1])+min.df; sig <- exp(theta[2])
+      nu1 <- nu + 1;  ym <- y - mu; nu2 <- nu - min.df;
       a <- 1 + (ym/sig)^2/nu
       oo <- list()
       ## get the quantities needed for IRLS. 
@@ -1259,12 +1340,13 @@ scat <- function (theta = NULL, link = "identity") {
       term <- 2*nu1/sig^2/(nu+3)
       n <- length(y) 
       oo$EDmu2 <- rep(term,n)
+      
       if (level>0) { ## quantities needed for first derivatives
         nu1nusig2a <- nu1/nusig2a
         nu2nu <- nu2/nu
         fym <- f*ym; ff1 <- f*f1; f1ym <- f1*ym; fymf1 <- fym*f1
         ymsig2a <- ym/sig2a
-        oo$Dmu2th <- oo$Dmuth <- oo$Dth <- matrix(0,n,2)
+        oo$EDmu2th <- oo$Dmu2th <- oo$Dmuth <- oo$Dth <- matrix(0,n,2)
         oo$Dth[,1] <- 1 * wt * nu2 * (log(a) - fym/nu) 
         oo$Dth[,2] <- -2 * wt * fym    
         oo$Dmuth[,1] <- 2 * wt *(f - ymsig2a - fymf1)*nu2nu
@@ -1272,6 +1354,8 @@ scat <- function (theta = NULL, link = "identity") {
         oo$Dmu3 <- 4 * wt * f * (3/nusig2a - 4*f1^2) 
         oo$Dmu2th[,1] <- 2* wt * (-nu1nusig2a + 1/sig2a + 5*ff1- 2*f1ym/sig2a - 4*fymf1*f1)*nu2nu
         oo$Dmu2th[,2] <- 4*wt*(-nu1nusig2a + ff1*5 - 4*ff1*f1ym)
+	oo$EDmu3 <- rep(0,n)
+	oo$EDmu2th <- cbind(4/(sig^2*(nu+3)^2)*exp(theta[1]),-2*oo$EDmu2)
       } 
       if (level>1) { ## whole lot
         ## nu1nu2 <- nu1*nu2; 
@@ -1310,26 +1394,29 @@ scat <- function (theta = NULL, link = "identity") {
 
  
     aic <- function(y, mu, theta=NULL, wt, dev) {
+        min.df <- get(".min.df")
         if (is.null(theta)) theta <- get(".Theta")
-        nu <- exp(theta[1])+2; sig <- exp(theta[2])
+        nu <- exp(theta[1])+min.df; sig <- exp(theta[2])
         term <- -lgamma((nu+1)/2)+ lgamma(nu/2) + log(sig*(pi*nu)^.5) +
            (nu+1)*log1p(((y-mu)/sig)^2/nu)/2  ## `-'log likelihood for each observation
         2 * sum(term * wt)
     }
     
-    ls <- function(y,w,n,theta,scale) {
+    ls <- function(y,w,theta,scale) {
        ## the log saturated likelihood function.
-       nu <- exp(theta[1])+2; sig <- exp(theta[2]); nu2 <- nu-2;
+       ## (Note these are correct but do not correspond to NP notes)
+       if (length(w)==1) w <- rep(w,length(y))
+       #vec <- !is.null(attr(theta,"vec.grad"))
+       min.df <- get(".min.df")
+       nu <- exp(theta[1])+min.df; sig <- exp(theta[2]); nu2 <- nu-min.df;
        nu2nu <- nu2/nu; nu12 <- (nu+1)/2
        term <- lgamma(nu12) - lgamma(nu/2) - log(sig*(pi*nu)^.5)
        ls <- sum(term*w) 
        ## first derivative wrt theta...
-       lsth <- rep(0,2) 
        lsth2 <- matrix(0,2,2)  ## rep(0, 3)
        term <- nu2 * digamma(nu12)/2- nu2 * digamma(nu/2)/2 - 0.5*nu2nu
-       lsth[1] <- sum(w*term)
-       lsth[2] <- sum(-1*w)
-       
+       #lsth <- if (vec) cbind(w*term,-1*w) else c(sum(w*term),sum(-w))
+       lsth <- c(sum(w*term),sum(-w))
        ## second deriv...      
        term <-  nu2^2 * trigamma(nu12)/4 + nu2 * digamma(nu12)/2 -
            nu2^2 * trigamma(nu/2)/4 - nu2 * digamma(nu/2)/2 + 0.5*(nu2nu)^2 - 0.5*nu2nu
@@ -1340,33 +1427,42 @@ scat <- function (theta = NULL, link = "identity") {
             lsth2=lsth2) ## Hessian wrt theta
     }
 
-    preinitialize <- expression({
+    preinitialize <- function(y,family) {
       ## initialize theta from raw observations..
-       if (G$family$n.theta>0) {
-         Theta <- c(-1, log(0.2*var(G$y)^.5))
-         G$family$putTheta(Theta)
+       if (family$n.theta>0) {
+         ## low df and low variance promotes indefiniteness.
+	 ## Better to start with moderate df and fairly high
+	 ## variance...
+         Theta <- c(1.5, log(0.8*sd(y))) 
+         return(list(Theta=Theta))
        } ## otherwise fixed theta supplied
-    })
+    }
 
     initialize <- expression({
         if (any(is.na(y))) stop("NA values not allowed for the scaled t family")
-        n <- rep(1, nobs)
+        ##n <- rep(1, nobs)
         mustart <- y + (y == 0)*.1
     })
-    postproc <- expression({
-      object$family$family <- 
-      paste("Scaled t(",paste(round(object$family$getTheta(TRUE),3),collapse=","),")",sep="")
-    })
+    
+    postproc <- function(family,y,prior.weights,fitted,linear.predictors,offset,intercept)  {
+      posr <- list()
+      posr$null.deviance <- find.null.dev(family,y,eta=linear.predictors,offset,prior.weights)
+      th <- round(family$getTheta(TRUE),3)
+      if (th[1]>999) th[1] <- Inf
+      posr$family <- paste("Scaled t(",paste(th,collapse=","),")",sep="")
+      posr
+    }
+    
     rd <- function(mu,wt,scale) {
      ## simulate data given fitted latent variable in mu 
-      theta <- get(".Theta")
-      nu <- exp(theta[1])+2; sig <- exp(theta[2])
+      theta <- get(".Theta");min.df <- get(".min.df")
+      nu <- exp(theta[1])+min.df; sig <- exp(theta[2])
       n <- length(mu)
       stats::rt(n=n,df=nu)*sig + mu
     }
 
-    environment(dev.resids) <- environment(aic) <- environment(getTheta) <- 
-    environment(rd)<- environment(variance) <- environment(putTheta) <- env
+    environment(dev.resids) <- environment(aic) <- environment(getTheta) <- environment(Dd) <-
+    environment(ls) <- environment(rd)<- environment(variance) <- environment(putTheta) <- env
 
     structure(list(family = "scaled t", link = linktemp, linkfun = stats$linkfun,
         linkinv = stats$linkinv, dev.resids = dev.resids,Dd=Dd,variance=variance,postproc=postproc,
@@ -1380,11 +1476,11 @@ scat <- function (theta = NULL, link = "identity") {
 
 ## zero inflated Poisson (Simon Wood)...
 
-lind <- function(l,th,deriv=0) {
+lind <- function(l,th,deriv=0,k=0) {
 ## evaluate th[1] + exp(th[2])*l and some derivs
   th[2] <- exp(th[2])
-  r <- list(p = th[1] + th[2]*l)
-  r$p.l <- th[2]   ## p_l
+  r <- list(p = th[1] + (k+th[2])*l)
+  r$p.l <- k + th[2]   ## p_l
   r$p.ll <- 0 ## p_ll
   if (deriv) {
     n <- length(l);  
@@ -1454,7 +1550,7 @@ logid <- function(l,th,deriv=0,a=0,trans=TRUE) {
 
 
 
-ziP <- function (theta = NULL, link = "identity") { 
+ziP <- function (theta = NULL, link = "identity",b=0) { 
 ## zero inflated Poisson parameterized in terms of the log Poisson parameter, gamma. 
 ## eta = theta[1] + exp(theta[2])*gamma), and 1-p = exp(-exp(eta)) where p is 
 ## probability of presence.
@@ -1471,12 +1567,17 @@ ziP <- function (theta = NULL, link = "identity") {
       iniTheta <-  c(theta[1],theta[2])
       n.theta <- 0 ## no thetas to estimate
   } else iniTheta <- c(0,0) ## inital theta value - start at Poisson
-
-  env <- new.env(parent = environment(ziP))# new.env(parent = .GlobalEnv)
+  
+  env <- new.env(parent = environment(ziP))# new.env(parent = .GlobalEnv) 
+  
+  if (b<0) b <- 0; assign(".b", b, envir = env)
   assign(".Theta", iniTheta, envir = env)
   getTheta <- function(trans=FALSE) { 
   ## trans transforms to the original scale...
     th <- get(".Theta")
+    if (trans) {
+      th[2] <- get(".b") + exp(th[2])
+    }
     th
   }
 
@@ -1487,7 +1588,8 @@ ziP <- function (theta = NULL, link = "identity") {
   dev.resids <- function(y, mu, wt,theta=NULL) {
     ## this version ignores saturated likelihood
     if (is.null(theta)) theta <- get(".Theta")
-    p <- theta[1] + exp(theta[2]) * mu ## l.p. for prob present
+    b <- get(".b")
+    p <- theta[1] + (b + exp(theta[2])) * mu ## l.p. for prob present
     -2*zipll(y,mu,p,deriv=0)$l
   }
   
@@ -1498,7 +1600,8 @@ ziP <- function (theta = NULL, link = "identity") {
     ## with any 2 parameter mapping of lp of mean to lp of prob presence.
     if (is.null(theta)) theta <- get(".Theta")
     deriv <- 1; if (level==1) deriv <- 2 else if (level>1) deriv <- 4 
-    g <- lind(mu,theta,level) ## the derviatives of the transform mapping mu to p
+    b <- get(".b")
+    g <- lind(mu,theta,level,b) ## the derviatives of the transform mapping mu to p
     z <- zipll(y,mu,g$p,deriv)
     oo <- list();n <- length(y)
     if (is.null(wt)) wt <- rep(1,n)
@@ -1513,7 +1616,7 @@ ziP <- function (theta = NULL, link = "identity") {
       oo$Dmuth <- -2*wt*(z$l2[,2]*g$p.th + z$l2[,3]*g$p.l*g$p.th + z$l1[,2]*g$p.lth) 
       oo$Dmu2th <- -2*wt*(z$l3[,2]*g$p.th + 2*z$l3[,3]*g$p.l*g$p.th + 2* z$l2[,2]*g$p.lth + 
        z$l3[,4]*g$p.l^2*g$p.th + z$l2[,3]*(2*g$p.l*g$p.lth + g$p.th*g$p.ll) + z$l1[,2]*g$p.llth)
-      oo$Dmu3 <- -2*wt*(z$l3[,1] + 3*z$l3[,2]*g$p.l + 2*z$l3[,3]*g$p.l^2 + 3*z$l2[,2]*g$p.ll + z$l3[,3]*g$p.l^2 +
+      oo$Dmu3 <- -2*wt*(z$l3[,1] + 3*z$l3[,2]*g$p.l + 3*z$l3[,3]*g$p.l^2 + 3*z$l2[,2]*g$p.ll +
        z$l3[,4]*g$p.l^3 +3*z$l2[,3]*g$p.l*g$p.ll + z$l1[,2]*g$p.lll)
     } 
     if (level>1) {
@@ -1540,6 +1643,7 @@ ziP <- function (theta = NULL, link = "identity") {
         z$l3[,3]*(6*g$p.lth*g$p.l + 3*g$p.th*g$p.ll) + 3*z$l2[,2]*g$p.llth + z$l4[,4]*g$p.th*g$p.l^2 + 
         z$l4[,5]*g$p.th*g$p.l^3 + 3*z$l3[,4]*(g$p.l^2*g$p.lth + g$p.th*g$p.l*g$p.ll) +
         z$l2[,3]*(3*g$p.lth*g$p.ll + 3*g$p.l*g$p.llth + g$p.th*g$p.lll) + z$l1[,2]*g$p.lllth)
+
       oo$Dmu4 <- -2*wt*(z$l4[,1] + 4*z$l4[,2]*g$p.l + 6*z$l4[,3]*g$p.l^2 + 6*z$l3[,2]*g$p.ll + 
         4*z$l4[,4]*g$p.l^3 + 12*z$l3[,3]*g$p.l*g$p.ll + 4*z$l2[,2]*g$p.lll + z$l4[,5] * g$p.l^4 +
         6*z$l3[,4]*g$p.l^2*g$p.ll + z$l2[,3] *(4*g$p.l*g$p.lll + 3*g$p.ll^2) + z$l1[,2]*g$p.llll)
@@ -1550,13 +1654,16 @@ ziP <- function (theta = NULL, link = "identity") {
   
   aic <- function(y, mu, theta=NULL, wt, dev) {
     if (is.null(theta)) theta <- get(".Theta")
-    p <- theta[1] + exp(theta[2]) * mu ## l.p. for prob present
+    b <- get(".b")
+    p <- theta[1] + (b+ exp(theta[2])) * mu ## l.p. for prob present
     sum(-2*wt*zipll(y,mu,p,0)$l)
   }
 
-  ls <- function(y,w,n,theta,scale) {
+  ls <- function(y,w,theta,scale) {
        ## the log saturated likelihood function.
-       ## ls is defined as zero for REML/ML expression as deviance is defined as -2*log.lik 
+       ## ls is defined as zero for REML/ML expression as deviance is defined as -2*log.lik
+       #vec <- !is.null(attr(theta,"vec.grad"))
+       #lsth1 <- if (vec) matrix(0,length(y),2) else c(0,0)
        list(ls=0,## saturated log likelihood
             lsth1=c(0,0),  ## first deriv vector w.r.t theta - last element relates to scale
             lsth2=matrix(0,2,2)) ##Hessian w.r.t. theta
@@ -1569,57 +1676,57 @@ ziP <- function (theta = NULL, link = "identity") {
           stop("Non-integer response variables are not allowed with ziP ")
         }
         if ((min(y)==0&&max(y)==1)) stop("Using ziP for binary data makes no sense")
-        n <- rep(1, nobs)
+        ##n <- rep(1, nobs)
         mustart <- log(y + (y==0)/5) 
     })
 
-    postproc <- expression({
-      object$family$family <- 
-      paste("Zero inflated Poisson(",paste(round(object$family$getTheta(TRUE),3),collapse=","),")",sep="")
+    ## compute family label, deviance, null.deviance...
+    ## requires prior weights, y, family, linear predictors
+    postproc <- function(family,y,prior.weights,fitted,linear.predictors,offset,intercept) {
+      posr <- list()
+      posr$family <- 
+      paste("Zero inflated Poisson(",paste(round(family$getTheta(TRUE),3),collapse=","),")",sep="")
       ## need to fix deviance here!!
       ## wts <- object$prior.weights
-      lf <- object$family$saturated.ll(G$y,family, object$prior.weights)
+      lf <- family$saturated.ll(y,family,prior.weights)
       ## storing the saturated loglik for each datum...
-      object$family$data <- list(ls = lf)   
-      l2 <- object$family$dev.resids(G$y,object$linear.predictors,object$prior.weights)
-      object$deviance <- sum(l2-lf)
-      fnull <- function(gamma,object) {
+      ##object$family$data <- list(ls = lf)   
+      l2 <- family$dev.resids(y,linear.predictors,prior.weights)
+      posr$deviance <- sum(l2-lf)
+      fnull <- function(gamma,family,y,wt) {
         ## evaluate deviance for single parameter model
-        sum(object$family$dev.resids(object$y, rep(gamma,length(object$y)), object$prior.weights))
+        sum(family$dev.resids(y, rep(gamma,length(y)), wt))
       }
-      meany <- mean(object$y)
-      object$null.deviance <- optimize(fnull,interval=c(meany/5,meany*3),object=object)$objective - sum(lf)
+      meany <- mean(y)
+      posr$null.deviance <-
+      optimize(fnull,interval=c(meany/5,meany*3),family=family,y=y,wt = prior.weights)$objective - sum(lf)
  
       ## object$weights <- pmax(0,object$working.weights) ## Fisher can be too extreme
       ## E(y) = p * E(y) - but really can't mess with fitted.values if e.g. rd is to work.
-
-    })
-
-#   fv <- function(lp,theta=NULL) {
-#    ## optional function to give fitted values... 
-#      if (is.null(theta)) theta <- get(".Theta")
-#      th1 <- theta[1]; th2 <- exp(theta[2]); 
-#      eta <- th1 + th2*lp
-#      p <- 1 - exp(-exp(eta))
-#      fv <- lambda <- exp(lp)
-#      ind <- lp < log(.Machine$double.eps)/2
-#      fv[!ind] <- p[!ind] * lambda[!ind]/(1-exp(-lambda[!ind]))
-#      fv[ind] <- p[ind]
-#      fv      
-#    } ## fv
+      posr
+    } ## postproc
 
     rd <- function(mu,wt,scale) {
     ## simulate data given fitted latent variable in mu 
       rzip <- function(gamma,theta) { ## generate ziP deviates according to model and lp gamma
         y <- gamma; n <- length(y)
         lambda <- exp(gamma)
-        eta <- theta[1] + exp(theta[2])*gamma
+        mlam <- max(c(lambda[is.finite(lambda)],.Machine$double.eps^.2))
+        lambda[!is.finite(lambda)] <- mlam
+        b <- get(".b")
+        eta <- theta[1] + (b+exp(theta[2]))*gamma
         p <- 1- exp(-exp(eta))
         ind <- p > runif(n)
         y[!ind] <- 0
-        np <- sum(ind)
+        #np <- sum(ind)
         ## generate from zero truncated Poisson, given presence...
-        y[ind] <- qpois(runif(np,dpois(0,lambda[ind]),1),lambda[ind])
+        lami <- lambda[ind]
+        yi <- p0 <- dpois(0,lami)
+        nearly1 <- 1 - .Machine$double.eps*10
+        ii <- p0 > nearly1 
+        yi[ii] <- 1 ## lambda so low that almost certainly y=1
+        yi[!ii] <- qpois(runif(sum(!ii),p0[!ii],nearly1),lami[!ii])
+        y[ind] <- yi 
         y
       } 
       rzip(mu,get(".Theta"))
@@ -1673,6 +1780,7 @@ ziP <- function (theta = NULL, link = "identity") {
       mu <- object$linear.predictors
       wts <- object$prior.weights
       res <- object$family$dev.resids(y,mu,wts)
+      ## next line is correct as function returns -2*saturated.log.lik
       res <- res - object$family$saturated.ll(y,object$family,wts)
       fv <- predict.gam(object,type="response")
       s <- attr(res,"sign")
@@ -1680,7 +1788,7 @@ ziP <- function (theta = NULL, link = "identity") {
       res <- as.numeric(sqrt(pmax(res,0)) * s) 
     }
     res
-  } ## residuals
+  } ## residuals (ziP)
 
   predict <- function(family,se=FALSE,eta=NULL,y=NULL,X=NULL,
                 beta=NULL,off=NULL,Vb=NULL) {
@@ -1696,7 +1804,8 @@ ziP <- function (theta = NULL, link = "identity") {
       se <- if (se) drop(sqrt(pmax(0,rowSums((X%*%Vb)*X)))) else NULL ## se of lin pred
     } else { se <- NULL; gamma <- eta}
     ## now compute linear predictor for probability of presence...
-    eta <- theta[1] + exp(theta[2])*gamma
+    b <- get(".b")
+    eta <- theta[1] + (b+exp(theta[2]))*gamma
     et <- exp(eta)
     mu <- p <- 1 - exp(-et)
     fv <- lambda <- exp(gamma)  
@@ -1718,8 +1827,8 @@ ziP <- function (theta = NULL, link = "identity") {
 
 
    
-  environment(saturated.ll) <- environment(dev.resids) <- 
-  environment(aic) <- environment(getTheta) <- environment(rd) <-
+  environment(saturated.ll) <- environment(dev.resids) <- environment(Dd) <-
+  environment(aic) <- environment(getTheta) <- environment(rd) <- environment(predict) <-
   environment(putTheta) <- env
 
   structure(list(family = "zero inflated Poisson", link = linktemp, linkfun = stats$linkfun,

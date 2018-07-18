@@ -2,6 +2,7 @@
 \alias{predict.gam}
 %- Also NEED an `\alias' for EACH other topic documented here.
 \title{Prediction from fitted GAM model}
+
 \description{ Takes a fitted \code{gam} object produced by \code{gam()} 
 and produces predictions given a new set of values for the model covariates 
 or the original values used for the model fit. Predictions can be accompanied
@@ -14,8 +15,8 @@ for quantities derived from the model (e.g. derivatives of smooths), and for loo
 
 \usage{
 \method{predict}{gam}(object,newdata,type="link",se.fit=FALSE,terms=NULL,
-        block.size=NULL,newdata.guaranteed=FALSE,na.action=na.pass,
-        unconditional=FALSE,...)
+        exclude=NULL,block.size=NULL,newdata.guaranteed=FALSE,
+        na.action=na.pass,unconditional=FALSE,iterms.type=NULL,...)
 }
 %- maybe also `usage' for other objects documented here.
 \arguments{ 
@@ -26,7 +27,7 @@ for quantities derived from the model (e.g. derivatives of smooths), and for loo
   are required. If this is not provided then predictions corresponding to the
                 original data are returned. If \code{newdata} is provided then
                 it should contain all the variables needed for prediction: a
-                warning is generated if not. } 
+                warning is generated if not. See details for use with \code{link{linear.functional.terms}}. } 
  
 \item{type}{ When this has the value \code{"link"} (default) the linear predictor (possibly with
 associated standard errors) is returned. When \code{type="terms"} each component of the 
@@ -47,8 +48,11 @@ outside \code{R} (see example code, below). }
 
 \item{se.fit}{ when this is TRUE (not default) standard error estimates are returned for each prediction.}
 
-\item{terms}{if \code{type=="terms"} then only results for the terms given in this array
-will be returned.}
+\item{terms}{if \code{type=="terms"} or \code{type="iterms"} then only results for the terms (smooth or parametric) named in this array
+will be returned. Otherwise any smooth terms not named in this array will be set to zero. If \code{NULL} then all terms are included.}
+
+\item{exclude}{if \code{type=="terms"} or \code{type="iterms"} then terms (smooth or parametric) named in this array will not be returned. Otherwise any smooth terms named in this array will be set to zero. 
+If \code{NULL} then no terms are excluded. Note that this is the term names as it appears in the model summary, see example.}
 
 \item{block.size}{maximum number of predictions to process per call to underlying
 code: larger is quicker, but more memory intensive. Set to < 1 to use total number
@@ -72,6 +76,8 @@ determined from \code{object$na.action}.}
 matrix is used, when available, otherwise the covariance matrix conditional on the estimated 
 smoothing parameters is used. }
 
+\item{iterms.type}{if \code{type="iterms"} then standard errors can either include the uncertainty in the overall mean (default, withfixed and random effects included) or the uncertainty in the mean of the non-smooth fixed effects only (\code{iterms.type=2}).}
+
 \item{...}{ other arguments.}
 
 }
@@ -94,7 +100,9 @@ then all variables must be supplied.
 
 \details{The standard errors produced by \code{predict.gam} are based on the
 Bayesian posterior covariance matrix of the parameters \code{Vp} in the fitted
-gam object. 
+gam object.
+
+When predicting from models with \code{link{linear.functional.terms}} then there are two possibilities. If the summation convention is to be used in prediction, as it was in fitting, then \code{newdata} should be a list, with named matrix arguments corresponding to any variables that were matrices in fitting. Alternatively one might choose to simply evaluate the constitutent smooths at particular values in which case arguments that were matrices can be replaced by vectors (and \code{newdata} can be a dataframe). See \code{link{linear.functional.terms}} for example code.
 
 To facilitate plotting with \code{\link{termplot}}, if \code{object} possesses
 an attribute \code{"para.only"} and \code{type=="terms"} then only parametric
@@ -125,7 +133,11 @@ Chambers and Hastie (1993) (but is not a clone).
 
 }
 
-\section{WARNING }{ Note that the behaviour of this function is not identical to 
+\section{WARNING }{
+Predictions are likely to be incorrect if data dependent transformations of the covariates
+are used within calls to smooths. See examples.
+
+Note that the behaviour of this function is not identical to 
 \code{predict.gam()} in Splus.
 
 \code{type=="terms"} does not exactly match what \code{predict.lm} does for
@@ -144,6 +156,7 @@ b<-gam(y~s(x0)+s(I(x1^2))+s(x2)+offset(x3),data=dat)
 
 newd <- data.frame(x0=(0:30)/30,x1=(0:30)/30,x2=(0:30)/30,x3=(0:30)/30)
 pred <- predict.gam(b,newd)
+pred0 <- predict(b,newd,exclude="s(x0)") ## prediction excluding a term
 
 #############################################
 ## difference between "terms" and "iterms"
@@ -186,6 +199,21 @@ mean(res);var(res)
 ## loop is replace-able by following .... 
 
 res <- colSums(log(abs(Xp \%*\% t(br))))
+
+##################################################################
+# illustration of unsafe scale dependent transforms in smooths....
+##################################################################
+
+b0 <- gam(y~s(x0)+s(x1)+s(x2)+x3,data=dat) ## safe
+b1 <- gam(y~s(x0)+s(I(x1/2))+s(x2)+scale(x3),data=dat) ## safe
+b2 <- gam(y~s(x0)+s(scale(x1))+s(x2)+scale(x3),data=dat) ## unsafe
+pd <- dat; pd$x1 <- pd$x1/2; pd$x3 <- pd$x3/2
+par(mfrow=c(1,2))
+plot(predict(b0,pd),predict(b1,pd),main="b0 and b1 predictions match")
+abline(0,1,col=2)
+plot(predict(b0,pd),predict(b2,pd),main="b2 unsafe, doesn't match")
+abline(0,1,col=2)
+
 
 ##################################################################
 ## The following shows how to use use an "lpmatrix" as a lookup 

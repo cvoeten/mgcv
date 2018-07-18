@@ -96,11 +96,13 @@ mvn <- function(d=2) {
       nbeta <- ncol(G$X)
       ntheta <- ydim*(ydim+1)/2 ## number of cov matrix factor params
       lpi <- attr(G$X,"lpi")
+      #offs <- attr(G$X,"offset")
       XX <- crossprod(G$X)
       G$X <- cbind(G$X,matrix(0,nrow(G$X),ntheta)) ## add dummy columns to G$X
       #G$cmX <- c(G$cmX,rep(0,ntheta)) ## and corresponding column means
       G$term.names <- c(G$term.names,paste("R",1:ntheta,sep="."))
       attr(G$X,"lpi") <- lpi
+      #offs -> attr(G$X,"offset")
       attr(G$X,"XX") <- XX
       ## pad out sqrt of balanced penalty matrix to account for extra params
       attr(G$Sl,"E") <- cbind(attr(G$Sl,"E"),matrix(0,nbeta,ntheta))
@@ -157,18 +159,23 @@ mvn <- function(d=2) {
 
     ##rd <- qf <- NULL ## these functions currently undefined for 
 
-    ll <- function(y,X,coef,wt,family,deriv=0,d1b=NULL,d2b=NULL,Hp=NULL,rank=0,fh=NULL,D=NULL) {
+    ll <- function(y,X,coef,wt,family,offset=NULL,deriv=0,d1b=NULL,d2b=NULL,Hp=NULL,rank=0,fh=NULL,D=NULL) {
     ## function defining the Multivariate Normal model log lik.
     ## Calls C code "mvn_ll"
-    ## deriv codes: 0 - eval; 1 - grad and Hessian
-    ##              2 - d1H (diagonal only - not implemented efficiently)
-    ##              3 - d1H; 4 d2H (diag - not implemented)
+    ## deriv codes: 0   - evaluate the log likelihood
+    ##              1   - evaluate the grad and Hessian, H, of log lik w.r.t. coefs (beta)
+    ##              2/3 - evaluate d1H =dH/drho given db/drho in d1b 
+    ##                    (2 is diagonal only - not implemented efficiently)
+    ##              4 -  given d1b and d2b evaluate trHid2H= tr(Hp^{-1}d2H/drhodrho') (not implemented)
     ## Hp is the preconditioned penalized hessian of the log lik
     ##    which is of rank 'rank'.
     ## fh is a factorization of Hp - either its eigen decomposition 
     ##    or its Choleski factor
     ## D is the diagonal pre-conditioning matrix used to obtain Hp
     ##   if Hr is the raw Hp then Hp = D*t(D*Hr)
+      if (!is.null(offset)) {
+	for (i in 1:length(offset)) if (sum(offset[[i]]!=0)) stop("mvn does not yet handle offsets")
+      }
       lpi <- attr(X,"lpi") ## lpi[[k]] is index of model matrix columns for dim k 
       overlap <- attr(lpi,"overlap") ## do dimensions share terms?
       drop <- attr(X,"drop") 

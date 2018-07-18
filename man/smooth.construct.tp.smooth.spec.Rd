@@ -7,9 +7,9 @@
 
 \description{\code{\link{gam}} can use isotropic smooths of any number of variables, specified via terms like
 \code{s(x,z,bs="tp",m=3)} (or just \code{s(x,z)} as this is the default basis). These terms are based on thin plate 
-regression splines. \code{m} specifies the order of the derivatives in the thin plate spline penalty. If \code{m} is 
-a vector of length 2 and the second element is zero, then the penalty null space of the smooth is not included in
-the smooth: this is useful if you need to test whether a smooth could be replaced by a linear term, for example.  
+regression splines. \code{m} specifies the order of the derivatives in the thin plate spline penalty.
+
+If \code{m} is a vector of length 2 and the second element is zero, then the penalty null space of the smooth is not included in the smooth: this is useful if you need to test whether a smooth could be replaced by a linear term, or construct models with odd nesting structures.  
 
  Thin plate regression splines are constructed by starting with the
   basis and penalty for a full thin plate spline and then truncating this basis in
@@ -117,10 +117,38 @@ Wood, S.N. (2003) Thin plate regression splines. J.R.Statist.Soc.B 65(1):95-114
 \examples{
 require(mgcv); n <- 100; set.seed(2)
 x <- runif(n); y <- x + x^2*.2 + rnorm(n) *.1
+
 ## is smooth significantly different from straight line?
 summary(gam(y~s(x,m=c(2,0))+x,method="REML")) ## not quite
+
 ## is smooth significatly different from zero?
 summary(gam(y~s(x),method="REML")) ## yes!
+
+## Fool bam(...,discrete=TRUE) into (strange) nested
+## model fit...
+set.seed(2) ## simulate some data... 
+dat <- gamSim(1,n=400,dist="normal",scale=2)
+dat$x1a <- dat$x1 ## copy x1 so bam allows 2 copies of x1
+## Following removes identifiability problem, by removing
+## linear terms from second smooth, and then re-inserting
+## the one that was not a duplicate (x2)...
+b <- bam(y~s(x0,x1)+s(x1a,x2,m=c(2,0))+x2,data=dat,discrete=TRUE)
+
+## example of knot based tprs...
+k <- 10; m <- 2
+y <- y[order(x)];x <- x[order(x)]
+b <- gam(y~s(x,k=k,m=m),method="REML",
+         knots=list(x=seq(0,1,length=k)))
+X <- model.matrix(b)
+par(mfrow=c(1,2))
+plot(x,X[,1],ylim=range(X),type="l")
+for (i in 2:ncol(X)) lines(x,X[,i],col=i)
+
+## compare with eigen based (default)
+b1 <- gam(y~s(x,k=k,m=m),method="REML")
+X1 <- model.matrix(b1)
+plot(x,X1[,1],ylim=range(X1),type="l")
+for (i in 2:ncol(X1)) lines(x,X1[,i],col=i)
 ## see ?gam
 }
 \keyword{models} \keyword{regression}%-- one or more ..

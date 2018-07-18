@@ -17,7 +17,7 @@ with smoothing parameters selected by GCV/UBRE/AIC/REML or by regression splines
 fixed degrees of freedom (mixtures of the two are permitted). Multi-dimensional smooths are 
 available using penalized thin plate regression splines (isotropic) or tensor product splines 
 (when an isotropic smooth is inappropriate), and users can add smooths. 
-Linear functionals of smooths can alos be included in models.
+Linear functionals of smooths can also be included in models.
 For an overview of the smooths available see \code{\link{smooth.terms}}. 
 For more on specifying models see \code{\link{gam.models}}, \code{\link{random.effects}} and \code{\link{linear.functional.terms}}. For more on model selection see \code{\link{gam.selection}}. Do read \code{\link{gam.check}} and \code{\link{choose.k}}.
 
@@ -31,7 +31,8 @@ gam(formula,family=gaussian(),data=list(),weights=NULL,subset=NULL,
     na.action,offset=NULL,method="GCV.Cp",
     optimizer=c("outer","newton"),control=list(),scale=0,
     select=FALSE,knots=NULL,sp=NULL,min.sp=NULL,H=NULL,gamma=1,
-    fit=TRUE,paraPen=NULL,G=NULL,in.out,drop.unused.levels=TRUE,...)
+    fit=TRUE,paraPen=NULL,G=NULL,in.out,drop.unused.levels=TRUE,
+    drop.intercept=NULL,...)
 }
 %- maybe also `usage' for other objects documented here.
 
@@ -69,8 +70,8 @@ which \code{gam} is called.}
 
 \item{offset}{Can be used to supply a model offset for use in fitting. Note
 that this offset will always be completely ignored when predicting, unlike an offset 
-included in \code{formula}: this conforms to the behaviour of
-\code{lm} and \code{glm}.}
+included in \code{formula} (this used to conform to the behaviour of
+\code{lm} and \code{glm}).}
 
 \item{control}{A list of fit control parameters to replace defaults returned by 
 \code{\link{gam.control}}. Values not set assume default values. }
@@ -82,10 +83,11 @@ of the scale. \code{"ML"} and \code{"P-ML"} are similar, but using maximum likel
 exponential family \code{"REML"} is the default, and the only other option is \code{"ML"}.}
 
 \item{optimizer}{An array specifying the numerical optimization method to use to optimize the smoothing 
-parameter estimation criterion (given by \code{method}). \code{"perf"} for performance iteration. \code{"outer"} 
+parameter estimation criterion (given by \code{method}). \code{"perf"} (deprecated) for performance iteration. \code{"outer"} 
 for the more stable direct approach. \code{"outer"} can use several alternative optimizers, specified in the 
 second element of \code{optimizer}: \code{"newton"} (default), \code{"bfgs"}, \code{"optim"}, \code{"nlm"} 
-and \code{"nlm.fd"} (the latter is based entirely on finite differenced derivatives and is very slow). }
+and \code{"nlm.fd"} (the latter is based entirely on finite differenced derivatives and is very slow). \code{"efs"}
+for the extended Fellner Schall method of Wood and Fasiolo (2017).}
 
 \item{scale}{ If this is positive then it is taken as the known scale parameter. Negative signals that the 
 scale parameter is unknown. 0 signals that the scale parameter is 1  for Poisson and binomial and unknown otherwise. 
@@ -95,7 +97,7 @@ Note that (RE)ML methods can only work with scale parameter 1 for the Poisson an
 \item{select}{ If this is \code{TRUE} then \code{gam} can add an extra penalty to each term so 
 that it can be penalized to zero.  This means that the smoothing parameter estimation that is 
 part of fitting can completely remove terms from the model. If the corresponding 
-smoothing parameter is estimated as zero then the extra penalty has no effect.
+smoothing parameter is estimated as zero then the extra penalty has no effect. Use \code{gamma} to increase level of penalization.
 }
 
 \item{knots}{this is an optional list containing user specified knot values to be used for basis construction. 
@@ -124,9 +126,7 @@ to add a ridge penalty to the parameters of the GAM in circumstances in which th
 is close to un-identifiable on the scale of the linear predictor, but perfectly well
 defined on the response scale.}
 
-\item{gamma}{It is sometimes useful to inflate the model degrees of 
-freedom in the GCV or UBRE/AIC score by a constant multiplier. This allows 
-such a multiplier to be supplied. } 
+\item{gamma}{Increase this beyond 1 to produce smoother models. \code{gamma} multiplies the effective degrees of freedom in the GCV or UBRE/AIC. code{n/gamma} can be viewed as an effective sample size in the GCV score, and this also enables it to be used with REML/ML. Ignored with P-RE/ML or the \code{efs} optimizer. } 
 
 \item{fit}{If this argument is \code{TRUE} then \code{gam} sets up the model and fits it, but if it is
 \code{FALSE} then the model is set up and an object \code{G} containing what
@@ -150,6 +150,9 @@ be estimated by RE/ML.}
 \item{drop.unused.levels}{by default unused levels are dropped from factors before fitting. For some smooths 
 involving factor variables you might want to turn this off. Only do so if you know what you are doing.}
 
+\item{drop.intercept}{Set to \code{TRUE} to force the model to really not have the a constant in the parametric model part,
+even with factor variables present. Can be vector when \code{formula} is a list.}
+
 \item{...}{further arguments for 
 passing on e.g. to \code{gam.fit} (such as \code{mustart}). }
 
@@ -167,10 +170,11 @@ Otherwise the function returns an object of class \code{"gam"} as described in \
 A generalized additive model (GAM) is a generalized linear model (GLM) in which the linear 
 predictor is given by a user specified sum of smooth functions of the covariates plus a 
 conventional parametric component of the linear predictor. A simple example is:
-\deqn{\log(E(y_i)) = f_1(x_{1i})+f_2(x_{2i})}{log(E(y_i))=f_1(x_1i)+f_2(x_2i)}
+\deqn{\log(E(y_i)) = \alpha + f_1(x_{1i})+f_2(x_{2i})}{log(E(y_i))= a + f_1(x_1i)+f_2(x_2i)}
 where the (independent) response variables \eqn{y_i \sim {\rm Poi }}{y_i~Poi}, and
 \eqn{f_1}{f_1} and \eqn{f_2}{f_2} are smooth functions of covariates \eqn{x_1}{x_1} and 
-\eqn{x_2}{x_2}. The log is an example of a link function. 
+\eqn{x_2}{x_2}. The log is an example of a link function. Note that to be identifiable the model
+requires constraints on the smooth functions. By default these are imposed automatically and require that the function sums to zero over the observed covariate values (the presence of a metric \code{by} variable is the only case which usually suppresses this). 
 
 If absolutely any smooth functions were allowed in model fitting then maximum likelihood 
 estimation of such models would invariably result in complex overfitting estimates of 
@@ -202,29 +206,29 @@ just AIC rescaled, but is only used when \eqn{s}{s} is known.
 Alternatives are GACV, or a Laplace approximation to REML. There
 is some evidence that the latter may actually be the most effective choice. 
 The main computational challenge solved 
-by the \code{mgcv} package is to optimize the smoothness selection criteria efficiently and reliably. Various
-alternative numerical methods are provided which can be set by argument \code{optimizer}.
+by the \code{mgcv} package is to optimize the smoothness selection criteria efficiently and reliably. 
 
 
 Broadly \code{gam} works by first constructing basis functions and one or more quadratic penalty 
 coefficient matrices for each smooth term in the model formula, obtaining a model matrix for 
 the strictly parametric part of the model formula, and combining these to obtain a 
 complete model matrix (/design matrix) and a set of penalty matrices for the smooth terms. 
-Some linear identifiability constraints are also obtained at this point. The model is 
+The linear identifiability constraints are also obtained at this point. The model is 
 fit using \code{\link{gam.fit}}, \code{\link{gam.fit3}} or varaints, which are modifications 
 of \code{\link{glm.fit}}. The GAM 
 penalized likelihood maximization problem is solved by Penalized Iteratively 
 Reweighted  Least Squares (P-IRLS) (see e.g. Wood 2000). 
-Smoothing parameter selection is integrated in one of two ways. (i)
-`Performance iteration' uses the fact that at each P-IRLS iteration a penalized 
-weighted least squares problem is solved, and the smoothing parameters of that problem can 
-estimated by GCV or UBRE. Eventually, in most cases, both model parameter estimates and smoothing 
-parameter estimates converge. (ii) Alternatively the P-IRLS scheme is iterated to
+Smoothing parameter selection is possible in one of two ways. (i)
+`Performance iteration' uses the fact that at each P-IRLS step a working penalized linear model
+is estimated, and the smoothing parameter estimation can be performed for each such working model.
+Eventually, in most cases, both model parameter estimates and smoothing 
+parameter estimates converge. This option is available in \code{\link{bam}} and \code{\link{gamm}} but
+is deprecated for \code{gam} (ii) Alternatively the P-IRLS scheme is iterated to
 convergence for each trial set of smoothing parameters, and GCV, UBRE or REML scores
 are only evaluated on convergence - optimization is then `outer' to the P-IRLS
 loop: in this case the P-IRLS iteration has to be differentiated, to
 facilitate optimization, and \code{\link{gam.fit3}} or one of its variants is used in place of
-\code{gam.fit}. The default is the second method, outer iteration.
+\code{gam.fit}. \code{gam} uses the second method, outer iteration.
 
 
 Several alternative basis-penalty types  are built in for representing model
@@ -273,6 +277,11 @@ See \link[gam]{gam} from package \code{gam}, for GAMs via the original Hastie an
 
 Key References on this implementation:
 
+Wood, S.N., N. Pya and B. Saefken (2016), Smoothing parameter and
+model selection for general smooth models (with discussion).
+Journal of the American Statistical Association 111, 1548-1575
+\url{http://dx.doi.org/10.1080/01621459.2016.1180986}
+
 Wood, S.N. (2011) Fast stable restricted maximum likelihood 
 and marginal likelihood estimation of semiparametric generalized linear 
 models. Journal of the Royal Statistical Society (B) 73(1):3-36
@@ -286,8 +295,12 @@ Wood, S.N. (2003) Thin plate regression splines. J.R.Statist.Soc.B 65(1):95-114
 Wood, S.N. (2006a) Low rank scale invariant tensor product smooths for
 generalized additive mixed models. Biometrics 62(4):1025-1036
 
-Wood S.N. (2006b) Generalized Additive Models: An Introduction with R. Chapman
+Wood S.N. (2017) Generalized Additive Models: An Introduction with R (2nd edition). Chapman
 and Hall/CRC Press.
+
+Wood, S.N. and M. Fasiolo (2017) A generalized Fellner-Schall method for smoothing
+parameter optimization with application to Tweedie location, scale and shape models.
+Biometrics 73 (4), 1071-1081
 
 Wood S.N., F. Scheipl and J.J. Faraway (2012) Straightforward intermediate rank tensor product smoothing
 in mixed models. Statistical Computing.
@@ -329,7 +342,7 @@ Wood (2001) mgcv:GAMs and Generalized Ridge Regression for R. R News 1(2):20-25
 Wood and Augustin (2002) GAMs with integrated model selection using penalized regression splines and applications 
 to environmental modelling. Ecological Modelling 157:157-177
 
-\url{http://www.maths.bath.ac.uk/~sw283/}
+\url{http://www.maths.bris.ac.uk/~sw15190/}
 }
 \author{ Simon N. Wood \email{simon.wood@r-project.org}
 
@@ -385,6 +398,11 @@ gam.check(b)
 G <- gam(y~s(x0)+s(x1)+s(x2)+s(x3),fit=FALSE,data=dat)
 b <- gam(G=G)
 print(b)
+
+## 2 part fit enabling manipulation of smoothing parameters...
+G <- gam(y~s(x0)+s(x1)+s(x2)+s(x3),fit=FALSE,data=dat,sp=b$sp)
+G$lsp0 <- log(b$sp*10) ## provide log of required sp vec
+gam(G=G) ## it's smoother
 
 ## change the smoothness selection method to REML
 b0 <- gam(y~s(x0)+s(x1)+s(x2)+s(x3),data=dat,method="REML")
@@ -444,7 +462,9 @@ print(b0);print(bp)
 b0 <- gam(y~s(x0,k=4,fx=TRUE,bs="tp")+s(x1,k=12)+s(x2,k=15),data=dat)
 plot(b0,pages=1)
 
+\donttest{
 ## now simulate poisson data...
+set.seed(6)
 dat <- gamSim(1,n=2000,dist="poisson",scale=.1)
 
 ## use "cr" basis to save time, with 2000 data...
@@ -462,14 +482,9 @@ par(mfrow=c(2,2))
 plot(b2a)
 
 par(mfrow=c(1,1))
-## similar example using performance iteration
+## similar example using GACV...
+
 dat <- gamSim(1,n=400,dist="poisson",scale=.25)
-
-b3<-gam(y~s(x0)+s(x1)+s(x2)+s(x3),family=poisson,
-        data=dat,optimizer="perf")
-plot(b3,pages=1)
-
-## repeat using GACV as in Wood 2008...
 
 b4<-gam(y~s(x0)+s(x1)+s(x2)+s(x3),family=poisson,
         data=dat,method="GACV.Cp",scale=-1)
@@ -526,7 +541,6 @@ vis.gam(b4)                     ## persp fit
 detach(eg)
 par(op)
 
-\dontrun{
 ##################################################
 ## largish dataset example with user defined knots
 ##################################################

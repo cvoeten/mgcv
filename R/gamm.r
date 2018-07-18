@@ -427,7 +427,7 @@ smooth2random.t2.smooth <- function(object,vnames,type=1) {
 ##         2. rind: and index vector such that if br is the vector of 
 ##            random coefficients for the term, br[rind] is the coefs in 
 ##            order for this term. rinc - dummy here.
-##         3. A matrix, U, that transforms coefs, in order [rand1, rand2,... fix]
+##         3. A matrix, trans.D, that transforms coefs, in order [rand1, rand2,... fix]
 ##            back to original parameterization. If null, then not needed.
 ##         4. A matrix Xf for the fixed effects, if any.
 ##         5. fixed TRUE/FALSE if its fixed or not. If fixed the other stuff is
@@ -483,7 +483,7 @@ smooth2random.mgcv.smooth <- function(object,vnames,type=1) {
 ## Returns 1. a list of random effects, including grouping factors, and 
 ##            a fixed effects matrix. Grouping factors, model matrix and 
 ##            model matrix name attached as attributes, to each element. 
-##         2. rind: and index vector such that if br is the vector of 
+##         2. rind: an index vector such that if br is the vector of 
 ##            random coefficients for the term, br[rind] is the coefs in 
 ##            order for this term. rinc - dummy here.
 ##         3. A matrix, U, + vec D that transforms coefs, in order [rand1, rand2,... fix]
@@ -546,7 +546,7 @@ smooth2random.tensor.smooth <- function(object,vnames,type=1) {
 ## Returns 1. a list of random effects, including grouping factors, and 
 ##            a fixed effects matrix. Grouping factors, model matrix and 
 ##            model matrix name attached as attributes, to each element. 
-##         2. rind: and index vector such that if br is the vector of 
+##         2. rind: an index vector such that if br is the vector of 
 ##            random coefficients for the term, br[rind] is the coefs in 
 ##            order for this term. rinc - dummy here.
 ##         3. A matrix, U, that transforms coefs, in order [rand1, rand2,... fix]
@@ -987,7 +987,7 @@ extract.lme.cov2<-function(b,data,start.level=1)
     }
   }
   list(V=V,ind=Cind)
-}
+} ## extract.lme.cov2
 
 extract.lme.cov<-function(b,data,start.level=1)
 # function to extract the response data covariance matrix from an lme fitted
@@ -1071,7 +1071,7 @@ extract.lme.cov<-function(b,data,start.level=1)
     V <- V+Z%*%Vr%*%t(Z)
   }
   V
-}
+} ## extract.lme.cov
 
 formXtViX <- function(V,X)
 ## forms X'V^{-1}X as efficiently as possible given the structure of
@@ -1147,7 +1147,7 @@ gammPQL <- function (fixed, random, family, data, correlation, weights,
   zz <- eta + fit0$residuals - off
   wz <- fit0$weights
   fam <- family
-
+  
   ## find non clashing name for pseudodata and insert in formula
   zz.name <- new.name("zz",names(data))
   eval(parse(text=paste("fixed[[2]] <- quote(",zz.name,")")))
@@ -1162,6 +1162,11 @@ gammPQL <- function (fixed, random, family, data, correlation, weights,
   w.formula <- as.formula(paste("~",invwt.name,sep=""))
 
   converged <- FALSE 
+
+  if (family$family %in% c("poisson","binomial")) {
+    control$sigma <- 1 ## set scale parameter to 1
+    control$apVar <- FALSE ## not available
+  }
 
   for (i in 1:niter) {
     if (verbose) message(gettextf("iteration %d", i))
@@ -1183,6 +1188,13 @@ gammPQL <- function (fixed, random, family, data, correlation, weights,
   if (!converged) warning("gamm not converged, try increasing niterPQL")
   fit$y <- fit0$y
   fit$w <- w ## prior weights
+  ## would require full edf to be computable with re terms include!
+  #if (is.null(correlation)) { ## then a conditional AIC is possible
+  #  y <- fit$y;weights <- w; nobs <- length(y)
+  #  eval(fam$initialize)
+  #  dev <- sum(fam$dev.resids(y,mu,w))
+  #  fit$aic <- fam$aic(y,n,mu,w,dev)
+  #}
   fit
 }
 
@@ -1196,7 +1208,11 @@ gamm <- function(formula,random=NULL,correlation=NULL,family=gaussian(),data=lis
 # random terms. correlation describes the correlation structure. This routine is basically an interface
 # between the basis constructors provided in mgcv and the gammPQL routine used to estimate the model.
 { if (inherits(family,"extended.family")) warning("family are not designed for use with gamm!")
-  
+  ## lmeControl turns sigma=NULL into sigma=0, but if you supply sigma=0 rejects it,
+  ## which will break the standard handling of the control list. Following line fixes.
+  ## but actually Martin M has now fixed lmeControl...
+  ##if (!is.null(control$sigma)&&control$sigma==0) control$sigma <- NULL
+  if (inherits(family,"extended.family")) warning("gamm is not designed to use extended families")
   control <- do.call("lmeControl",control) 
     # check that random is a named list
     if (!is.null(random))
@@ -1243,7 +1259,7 @@ gamm <- function(formula,random=NULL,correlation=NULL,family=gaussian(),data=lis
       mf$min.sp <- mf$H <- mf$gamma <- mf$fit <- mf$niterPQL <- mf$verbosePQL <- mf$G <- mf$method <- mf$... <- NULL
     }
     mf$drop.unused.levels <- drop.unused.levels
-    mf[[1]] <- as.name("model.frame")
+    mf[[1]] <- quote(stats::model.frame) ## as.name("model.frame")
     pmf <- mf
     gmf <- eval(mf, parent.frame()) # the model frame now contains all the data, for the gam part only 
     gam.terms <- attr(gmf,"terms") # terms object for `gam' part of fit -- need this for prediction to work properly
@@ -1263,7 +1279,7 @@ gamm <- function(formula,random=NULL,correlation=NULL,family=gaussian(),data=lis
   
     ## summarize the *raw* input variables
     ## note can't use get_all_vars here -- buggy with matrices
-    vars <- all.vars(gp$fake.formula[-2]) ## drop response here
+    vars <- all.vars1(gp$fake.formula[-2]) ## drop response here
     inp <- parse(text = paste("list(", paste(vars, collapse = ","),")"))
     dl <- eval(inp, data, parent.frame())
     names(dl) <- vars ## list of all variables needed
@@ -1341,15 +1357,18 @@ gamm <- function(formula,random=NULL,correlation=NULL,family=gaussian(),data=lis
     length(offset.name)==0) lme.used <- TRUE else lme.used <- FALSE
     if (lme.used&&!is.null(weights)&&!wisvf) lme.used <- FALSE   
 
-    if (lme.used)
-    { ## following construction is a work-around for problem in nlme 3-1.52 
+    if (lme.used) { ## following construction is a work-around for problem in nlme 3-1.52 
       eval(parse(text=paste("ret$lme<-lme(",deparse(fixed.formula),
           ",random=rand,data=strip.offset(mf),correlation=correlation,",
           "control=control,weights=weights,method=method)"
-            ,sep=""    ))) 
+            ,sep=""    )))
+      ## need to be able to work out full edf for following to work...	    
+      # if (is.null(correlation)) { ## compute conditional aic precursor
+      #  dev <- sum(family$dev.resids(G$y,fitted(ret$lme),weights))
+      #	ret$lme$aic <- family$aic(G$y,1,fitted(ret$lme),weights,dev)
+      # }
       ##ret$lme<-lme(fixed.formula,random=rand,data=mf,correlation=correlation,control=control)
-    } else
-    { ## Again, construction is a work around for nlme 3-1.52
+    } else { ## Again, construction is a work around for nlme 3-1.52
       if (wisvf) stop("weights must be like glm weights for generalized case")
       if (verbosePQL) cat("\n Maximum number of PQL iterations: ",niterPQL,"\n")
       eval(parse(text=paste("ret$lme<-gammPQL(",deparse(fixed.formula),
@@ -1357,8 +1376,7 @@ gamm <- function(formula,random=NULL,correlation=NULL,family=gaussian(),data=lis
           "correlation=correlation,control=control,",
             "weights=weights,niter=niterPQL,verbose=verbosePQL)",sep=""))) 
       G$y <- ret$lme$y ## makes sure that binomial response is returned as a vector!
-      ##ret$lme<-glmmPQL(fixed.formula,random=rand,data=mf,family=family,correlation=correlation,
-      ##                 control=control,niter=niterPQL,verbose=verbosePQL)
+     
     }
 
     ### .... fitting finished
@@ -1523,6 +1541,11 @@ gamm <- function(formula,random=NULL,correlation=NULL,family=gaussian(),data=lis
     object$edf<-rowSums(Vb*t(XVX))   
     object$df.residual <- length(object$y) - sum(object$edf)    
 
+    #if (!is.null(ret$lme$aic)) { ## finish the conditional AIC (only happens if no correlation) 
+    #  object$aic <- ret$lme$aic + sum(object$edf) ## requires edf for r.e. as well!
+    #  ret$lme$aic<- NULL
+    #}
+
     object$sig2 <- ret$lme$sigma^2
     if (lme.used) { object$method <- paste("lme.",method,sep="")} 
     else { object$method <- "PQL"}
@@ -1574,7 +1597,8 @@ gamm <- function(formula,random=NULL,correlation=NULL,family=gaussian(),data=lis
     ## set environments to global to avoid enormous saved object files
     environment(attr(object$model,"terms")) <- 
     environment(object$terms) <- environment(object$pterms) <- 
-    environment(object$formula) <-environment(object$pred.formula) <-  .GlobalEnv
+    environment(object$formula) <- .GlobalEnv
+    if (!is.null(object$pred.formula)) environment(object$pred.formula) <-  .GlobalEnv
     ret$gam <- object
     environment(attr(ret$lme$data,"terms")) <- environment(ret$lme$terms) <- .GlobalEnv
     if (!is.null(ret$lme$modelStruct$varStruct)) {
@@ -1609,6 +1633,7 @@ test.gamm <- function(control=nlme::lmeControl(niterEM=3,tolerance=1e-11,msTol=1
   x<-runif(n)/20;z<-runif(n);
   f <- test1(x,z)
   y <- f + rnorm(n)*0.2
+  control$sigma <- NULL ## avoid failure on silly test
   cat("testing covariate scale invariance ... ")  
   b <- gamm(y~te(x,z), control=control )
   x1 <- x*100 

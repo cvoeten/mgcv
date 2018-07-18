@@ -22,7 +22,7 @@ void boundary(int *G, double *d, double *dto, double *x0, double *y0, double *dx
    matrices d and dto are same dimension as G. 
    
    The boundary is supplied in n-arrays, `x' and `y'. Sub loops are separated by elements
-   <= break_code. nb must have dimension of muber of loops.
+   <= break_code. nb must have dimension of number of loops.
 
    On exit:
    G[i,j] < - nx * ny is outside boundary, otherwise
@@ -66,14 +66,14 @@ void boundary(int *G, double *d, double *dto, double *x0, double *y0, double *dx
   }
   k = *nx * *ny; /* total size of G, d, dto */
   out_lim = -k;
-  inb = (int *)R_chk_calloc((size_t)k,sizeof(int));  
+  inb = (int *)CALLOC((size_t)k,sizeof(int));  
   in_out(x,y,break_code,d,dto,inb,n,&k); /* test all cell centres for in/out */
   j = -(k + 10);
   for (ip = inb,ip1 = G,p2 = dto,ip2=G+k;ip1<ip2;ip1++,p2++,ip++) {
     if (!*ip) *ip1 = j; else *ip1 = 1; /* set outside/inside in G */
     *p2 = -1.0; /* clear dto to -ve */
   }
-  R_chk_free(inb);
+  FREE(inb);
 
   xb0 = *x0 - *dx/2;yb0 = *y0 - *dx/2; /* Refers to boundary lines lower left */ 
  
@@ -233,7 +233,8 @@ void pde_coeffs(int *G,double *x,int *ii,int *jj,int *n,int *nx,int *ny,double *
   int i,j,*ip,outside,Gk0,Gk1,k0,k1;
   double xc,dx2,dy2,thresh=0.0;
   thresh = dx2= 1.0/(*dx * *dx);dy2 = 1.0/(*dy * *dy);
-  if (dy2 < thresh) thresh = dy2;thresh *= .5;
+  if (dy2 < thresh) thresh = dy2;
+  thresh *= .5;
   outside = - *nx * *ny - 1;
   *n=0; 
   for (ip=G,i=0;i<*nx;i++) for (j=0;j<*ny;j++,ip++) if (*ip > outside){

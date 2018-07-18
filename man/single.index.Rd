@@ -17,9 +17,9 @@ require(mgcv)
 
 si <- function(theta,y,x,z,opt=TRUE,k=10,fx=FALSE) {
 ## Fit single index model using gam call, given theta (defines alpha). 
-## Return ML is opt==TRUE and fitted gam with theta added otherwise.
+## Return ML if opt==TRUE and fitted gam with theta added otherwise.
 ## Suitable for calling from 'optim' to find optimal theta/alpha.
-  alpha <- c(1,theta) ## constrained alpha defined using free parameters theta
+  alpha <- c(1,theta) ## constrained alpha defined using free theta
   kk <- sqrt(sum(alpha^2))
   alpha <- alpha/kk  ## so now ||alpha||=1
   a <- x\%*\%alpha     ## argument of smooth
@@ -56,9 +56,8 @@ f0 <- nlm(si,th0,y=y,x=x,z=z,fx=TRUE,k=5)
 f1 <- nlm(si,f0$estimate,y=y,x=x,z=z,hessian=TRUE,k=10)
 theta.est <-f1$estimate 
 
-## Alternative using 'optim' ('Not run' simply to keep
-## CRAN check time down)... 
-\dontrun{
+## Alternative using 'optim'... 
+\donttest{
 th0 <- rep(0,m-1) 
 ## get initial theta, using no penalization...
 f0 <- optim(th0,si,y=y,x=x,z=z,fx=TRUE,k=5)
