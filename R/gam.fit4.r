@@ -27,40 +27,53 @@ dDeta <- function(y,mu,wt,theta,fam,deriv=0) {
         d$Deta4 <- r$Dmu4; d$Dth2 <- r$Dth2; d$Detath2 <- r$Dmuth2
         d$Deta2th2 <- r$Dmu2th2; d$Deta3th <- r$Dmu3th
       }
-      return(d)
-   }
+   } else {
 
-   ig1 <- fam$mu.eta(fam$linkfun(mu)) 
-   ig12 <- ig1^2
-   
-   g2g <- fam$g2g(mu)
+     ig1 <- fam$mu.eta(fam$linkfun(mu)) 
+     ig12 <- ig1^2
+    
+     g2g <- fam$g2g(mu)
 
 ##   ig12 <- ig1^2;ig13 <- ig12 * ig1
 
-   d$Deta <- r$Dmu * ig1
-   d$Deta2 <- r$Dmu2*ig12 - r$Dmu*g2g*ig1
-   d$EDeta2 <- r$EDmu2*ig12
-   d$Deta.Deta2 <- r$Dmu/(r$Dmu2*ig1 - r$Dmu*g2g)
-   d$Deta.EDeta2 <- r$Dmu/(r$EDmu2*ig1)
-   if (deriv>0) {
-      ig13 <- ig12 * ig1
-      d$Dth <- r$Dth 
-      d$Detath <- r$Dmuth * ig1
-      g3g <- fam$g3g(mu)
-      d$Deta3 <- r$Dmu3*ig13 - 3*r$Dmu2 * g2g * ig12 + r$Dmu * (3*g2g^2 - g3g)*ig1
-      if (!is.null(r$EDmu3)) d$EDeta3 <- r$EDmu3*ig13 - 3*r$EDmu2 * g2g * ig12 ## EDmu=0
-      d$Deta2th <- r$Dmu2th*ig12 - r$Dmuth*g2g*ig1
-      if (!is.null(r$EDmu2th)) d$EDeta2th <- r$EDmu2th*ig12 ##- r$EDmuth*g2g*ig1
-   }
-   if (deriv>1) {
-     g4g <- fam$g4g(mu)
-     d$Deta4 <- ig12^2*r$Dmu4 - 6*r$Dmu3*ig13*g2g + r$Dmu2*(15*g2g^2-4*g3g)*ig12 - 
+     d$Deta <- r$Dmu * ig1
+     d$Deta2 <- r$Dmu2*ig12 - r$Dmu*g2g*ig1
+     d$EDeta2 <- r$EDmu2*ig12
+     d$Deta.Deta2 <- r$Dmu/(r$Dmu2*ig1 - r$Dmu*g2g)
+     d$Deta.EDeta2 <- r$Dmu/(r$EDmu2*ig1)
+     if (deriv>0) {
+        ig13 <- ig12 * ig1
+        d$Dth <- r$Dth 
+        d$Detath <- r$Dmuth * ig1
+        g3g <- fam$g3g(mu)
+        d$Deta3 <- r$Dmu3*ig13 - 3*r$Dmu2 * g2g * ig12 + r$Dmu * (3*g2g^2 - g3g)*ig1
+        if (!is.null(r$EDmu3)) d$EDeta3 <- r$EDmu3*ig13 - 3*r$EDmu2 * g2g * ig12 ## EDmu=0
+        d$Deta2th <- r$Dmu2th*ig12 - r$Dmuth*g2g*ig1
+        if (!is.null(r$EDmu2th)) d$EDeta2th <- r$EDmu2th*ig12 ##- r$EDmuth*g2g*ig1
+     }
+     if (deriv>1) {
+       g4g <- fam$g4g(mu)
+       d$Deta4 <- ig12^2*r$Dmu4 - 6*r$Dmu3*ig13*g2g + r$Dmu2*(15*g2g^2-4*g3g)*ig12 - 
                        r$Dmu*(15*g2g^3-10*g2g*g3g  +g4g)*ig1
-     d$Dth2 <- r$Dth2
-     d$Detath2 <- r$Dmuth2 * ig1 
-     d$Deta2th2 <- ig12*r$Dmu2th2 - r$Dmuth2*g2g*ig1
-     d$Deta3th <-  ig13*r$Dmu3th - 3 *r$Dmu2th*g2g*ig12 + r$Dmuth*(3*g2g^2-g3g)*ig1
-   }
+       d$Dth2 <- r$Dth2
+       d$Detath2 <- r$Dmuth2 * ig1 
+       d$Deta2th2 <- ig12*r$Dmu2th2 - r$Dmuth2*g2g*ig1
+       d$Deta3th <-  ig13*r$Dmu3th - 3 *r$Dmu2th*g2g*ig12 + r$Dmuth*(3*g2g^2-g3g)*ig1
+     }
+   } ## end of non identity
+   good <- is.finite(d$Deta)&is.finite(d$Deta2)
+   if (deriv>0) {
+     if (length(theta)>1) good <- good&is.finite(rowSums(d$Dth))&is.finite(rowSums(d$Detath))&
+                                  is.finite(rowSums(d$Deta2th))&is.finite(d$Deta3) else
+     good <- good&is.finite(d$Dth)&is.finite(d$Detath)&is.finite(d$Deta2th)&is.finite(d$Deta3)
+     if (deriv>1) { 
+       if (length(theta)==1) good <- good&is.finite(d$Dth2)&is.finite(d$Detath2)&is.finite(d$Deta2th2)&
+                                     is.finite(d$Deta3th)&is.finite(d$Deta4) else
+       good <- good&is.finite(rowSums(d$Dth2))&is.finite(rowSums(d$Detath2))&is.finite(rowSums(d$Deta2th2))&
+               is.finite(rowSums(d$Deta3th))&is.finite(d$Deta4)
+     }
+   }	   
+   d$good <- good	   
    d
 } ## dDeta
 
@@ -337,7 +350,8 @@ gam.fit4 <- function(x, y, sp, Eb,UrS=list(),
     pdev <- sum(dev.resids(y, linkinv(x%*%start+as.numeric(offset)), weights,theta)) + t(start)%*%St%*%start
     if (pdev>old.pdev) start <- mukeep <- etastart <- NULL
   }
-
+  coefold <- null.coef ## set to default, may be replaced below
+  
   if (!is.null(mukeep)) mustart <- mukeep
 
   ## and now finalize initialization of mu and eta...
@@ -356,35 +370,31 @@ gam.fit4 <- function(x, y, sp, Eb,UrS=list(),
               else family$linkfun(mustart)
   
    mu <- linkinv(eta);etaold <- eta
-     
-   coefold <- null.coef
    conv <-  boundary <- FALSE
    dd <- dDeta(y,mu,weights,theta,family,0) ## derivatives of deviance w.r.t. eta
    w <- dd$Deta2 * .5;
    wz <- w*(eta-offset) - .5*dd$Deta
    z <- (eta-offset) - dd$Deta.Deta2
    good <- is.finite(z)&is.finite(w)
+   zg <- rep(0,max(dim(x)))
 
    for (iter in 1:control$maxit) { ## start of main fitting iteration 
       if (control$trace) cat(iter," ")
-    #  dd <- dDeta(y,mu,weights,theta,family,0) ## derivatives of deviance w.r.t. eta
-    #  w <- dd$Deta2 * .5;
-    #  wz <- w*(eta-offset) - .5*dd$Deta
-    #  z <- (eta-offset) - dd$Deta.Deta2
-    #  good <- is.finite(z)&is.finite(w)
       if (control$trace&sum(!good)>0) cat("\n",sum(!good)," not good\n")
       if (sum(!good)) {
         use.wy <- TRUE
         good <- is.finite(w)&is.finite(wz)
         z[!is.finite(z)] <- 0 ## avoid NaN in .C call - unused anyway
       } else use.wy <- family$use.wz
-          
+      if (sum(good)==0) stop("no good data in iteration")
+      ng <- sum(good)
+      zg[1:ng] <- z[good] ## ensure that y dimension large enough for coefs
       oo <- .C(C_pls_fit1,   
-               y=as.double(z[good]),X=as.double(x[good,]),w=as.double(w[good]),wy = as.double(wz[good]),
-                     E=as.double(Sr),Es=as.double(Eb),n=as.integer(sum(good)),
+               y=as.double(zg),X=as.double(x[good,]),w=as.double(w[good]),wy = as.double(wz[good]),
+                     E=as.double(Sr),Es=as.double(Eb),n=as.integer(ng),
                      q=as.integer(ncol(x)),rE=as.integer(rows.E),eta=as.double(z),
                      penalty=as.double(1),rank.tol=as.double(rank.tol),
-                     nt=as.integer(control$nthreads),use.wy=as.integer(use.wy))
+                     nt=as.integer(control$nthreads),use.wy=as.integer(use.wy))		     
       posdef <- oo$n >= 0
       if (!posdef) { ## then problem is indefinite - switch to +ve weights for this step
         if (control$trace) cat("**using positive weights\n")
@@ -402,10 +412,11 @@ gam.fit4 <- function(x, y, sp, Eb,UrS=list(),
           good <- is.finite(w)&is.finite(wz)
           z[!is.finite(z)] <- 0 ## avoid NaN in .C call - unused anyway
         } else use.wy <- family$use.wz
-      
+        ng <- sum(good)
+        zg[1:ng] <- z[good] ## ensure that y dimension large enough for coefs     
         oo <- .C(C_pls_fit1, ##C_pls_fit1,
-                  y=as.double(z[good]),X=as.double(x[good,]),w=as.double(w[good]),wy = as.double(wz[good]),
-                     E=as.double(Sr),Es=as.double(Eb),n=as.integer(sum(good)),
+                  y=as.double(zg),X=as.double(x[good,]),w=as.double(w[good]),wy = as.double(wz[good]),
+                     E=as.double(Sr),Es=as.double(Eb),n=as.integer(ng),
                      q=as.integer(ncol(x)),rE=as.integer(rows.E),eta=as.double(z),
                      penalty=as.double(1),rank.tol=as.double(rank.tol),
                      nt=as.integer(control$nthreads),use.wy=as.integer(use.wy))
@@ -435,8 +446,7 @@ gam.fit4 <- function(x, y, sp, Eb,UrS=list(),
             coefold <- null.coef
             etaold <- null.eta
          }
-         #warning("Step size truncated due to divergence", 
-         #            call. = FALSE)
+        
          ii <- 1
          while (!is.finite(dev)) {
                if (ii > control$maxit) 
@@ -456,8 +466,7 @@ gam.fit4 <- function(x, y, sp, Eb,UrS=list(),
 
       ## now step halve if mu or eta are out of bounds... 
       if (!(valideta(eta) && validmu(mu))) {
-         #warning("Step size truncated: out of bounds", 
-         #         call. = FALSE)
+       
          ii <- 1
          while (!(valideta(eta) && validmu(mu))) {
                   if (ii > control$maxit) 
@@ -522,7 +531,7 @@ gam.fit4 <- function(x, y, sp, Eb,UrS=list(),
        ## Need to check coefs converged adequately, to ensure implicit differentiation
        ## ok. Testing coefs unchanged is problematic under rank deficiency (not guaranteed to
        ## drop same parameter every iteration!)
-       grad <- 2 * t(x[good,])%*%((w[good]*(x%*%start)[good]-wz[good]))+ 2*St%*%start 
+       grad <- 2 * t(x[good,,drop=FALSE])%*%((w[good]*(x%*%start)[good]-wz[good]))+ 2*St%*%start 
        if (max(abs(grad)) > control$epsilon*max(abs(start+coefold))/2) {
          old.pdev <- pdev  ## not converged quite enough
          coef <- coefold <- start
@@ -562,8 +571,8 @@ gam.fit4 <- function(x, y, sp, Eb,UrS=list(),
    wf <- pmax(0,dd$EDeta2 * .5) ## Fisher type weights 
    wz <- w*(eta-offset) - 0.5*dd$Deta ## Wz finite when w==0
   
-   gdi.type <- if (any(abs(w)<.Machine$double.xmin*1e20)||any(!is.finite(z))) 1 else 0   
-   good <- is.finite(wz)&is.finite(w)   
+   good <- is.finite(wz)&is.finite(w)&dd$good
+   if (sum(good)==0) stop("not enough finite derivatives")
       
    residuals <- z - (eta - offset)
    residuals[!is.finite(residuals)] <- NA 
@@ -599,8 +608,11 @@ gam.fit4 <- function(x, y, sp, Eb,UrS=list(),
      }
    }
 
-   if (scoreType=="EFS") scoreType <- "REML"
+   ## gdi.type should probably be computed after dropping via good
+   
+   gdi.type <- if (any(abs(w)<.Machine$double.xmin*1e20)||any(!is.finite(z))) 1 else 0   
 
+   if (scoreType=="EFS") scoreType <- "REML"
    oo <- .C(C_gdi2,
             X=as.double(x[good,]),E=as.double(Sr),Es=as.double(Eb),rS=as.double(unlist(rS)),
             U1 = as.double(U1),sp=as.double(exp(sp)),theta=as.double(theta),
@@ -621,7 +633,6 @@ gam.fit4 <- function(x, y, sp, Eb,UrS=list(),
             rSncol=as.integer(rSncol),deriv=as.integer(deriv),
 	    fixed.penalty = as.integer(rp$fixed.penalty),nt=as.integer(control$nthreads),
             type=as.integer(gdi.type),dVkk=as.double(rep(0,nSp^2)))
-
    rV <- matrix(oo$rV,ncol(x),ncol(x)) ## rV%*%t(rV)*scale gives covariance matrix 
    rV <- T %*% rV   
    ## derivatives of coefs w.r.t. sps etc...
@@ -678,7 +689,7 @@ gam.fit4 <- function(x, y, sp, Eb,UrS=list(),
    names(residuals) <- ynames
    wtdmu <- sum(weights * y)/sum(weights) ## has to then be corrected when this is incorrect
    ## wtdmu <- sum(weights * mu)/sum(weights) ## changed from y
-   nulldev <- sum(dev.resids(y, rep(wtdmu,length(y)), weights))
+   nulldev <- sum(dev.resids(y, rep(wtdmu,length(y)), weights)) ## this will be corrected in family postproc
    n.ok <- nobs - sum(weights == 0)
    nulldf <- n.ok
    ww <- wt <- rep.int(0, nobs)
@@ -726,7 +737,7 @@ efsudr <- function(x,y,lsp,Eb,UrS,weights,family,offset=0,start=NULL,etastart=NU
   nsp <- length(UrS)
   if (inherits(family,"extended.family")) {
     spind <- family$n.theta + 1:nsp
-    thind <- 1:family$n.theta
+    thind <- if (family$n.theta>0) 1:family$n.theta else rep(0,0)
   } else {
     thind <- rep(0,0)
     spind <- 1:nsp ## index of smoothing params in lsp
@@ -910,7 +921,7 @@ gam.fit5 <- function(x,y,lsp,Sl,weights=NULL,offset=NULL,deriv=2,family,
   perturbed <- 0 ## counter for number of times perturbation tried on possible saddle
   for (iter in 1:(2*control$maxit)) { ## main iteration
     ## get Newton step... 
-    if (check.deriv) {
+    if (check.deriv) { ## code for checking derivatives when debugging
       fdg <- ll$lb*0; fdh <- ll$lbb*0
       for (k in 1:length(coef)) {
         coef1 <- coef;coef1[k] <- coef[k] + eps
@@ -918,14 +929,22 @@ gam.fit5 <- function(x,y,lsp,Sl,weights=NULL,offset=NULL,deriv=2,family,
         fdg[k] <- (ll.fd$l-ll$l)/eps
         fdh[,k] <- (ll.fd$lb-ll$lb)/eps
       }
-    }
+    } ## derivative checking end
     grad <- ll$lb - St%*%coef 
     Hp <- -ll$lbb+St
     D <- diag(Hp)
     if (sum(!is.finite(D))>0) stop("non finite values in Hessian")
-    indefinite <- FALSE
-    if (sum(D <= 0)) { ## Hessian indefinite, for sure
-      D <- rep(1,ncol(Hp))
+
+    if (min(D)<0) { ## 2/2/19 replaces any D<0 indicating indef
+      Dthresh <- max(D)*sqrt(.Machine$double.eps) 
+      if (-min(D) < Dthresh) { ## could be indef or +ve semi def
+        indefinite <- FALSE
+	D[D<Dthresh] <- Dthresh
+      } else indefinite <- TRUE ## min D too negative to be semi def
+    } else indefinite <- FALSE ## On basis of D could be +ve def
+    
+    if (indefinite) { ## Hessian indefinite, for sure
+      ## D <- rep(1,ncol(Hp)) # moved to later otherwise Ip/Ib pointless 2/2/19
       if (eigen.fix) {
         eh <- eigen(Hp,symmetric=TRUE);
         ev <- abs(eh$values)
@@ -935,6 +954,7 @@ gam.fit5 <- function(x,y,lsp,Sl,weights=NULL,offset=NULL,deriv=2,family,
         Ip <- diag(rank)*abs(max(D)*.Machine$double.eps^.5)
         Hp <- Hp  + Ip + Ib
       }
+      D <- rep(1,ncol(Hp)) ## 2/2/19
       indefinite <- TRUE
     } else { ## Hessian could be +ve def in which case Choleski is cheap!
       D <- D^-.5 ## diagonal pre-conditioner
@@ -1069,8 +1089,9 @@ gam.fit5 <- function(x,y,lsp,Sl,weights=NULL,offset=NULL,deriv=2,family,
     }
   } ## end of main fitting iteration
 
-  ## at this stage the Hessian (of pen lik. w.r.t. coefs) should be +ve definite,
+  ## at this stage the Hessian (of pen lik. w.r.t. coefs) should be +ve semi definite,
   ## so that the pivoted Choleski factor should exist...
+  
   if (iter == 2*control$maxit&&converged==FALSE) 
     warning(gettextf("iteration limit reached: max abs grad = %g",max(abs(grad))))
 
@@ -1152,11 +1173,6 @@ gam.fit5 <- function(x,y,lsp,Sl,weights=NULL,offset=NULL,deriv=2,family,
       k <- k + 1
       d2ldetH[i,j] <- -sum(d1Hp[[i]]*t(d1Hp[[j]])) - llr$trHid2H[k] 
       if (i==j) { ## need to add term relating to smoothing penalty
-        #A <- t(Sl.mult(rp$Sl,diag(q),i,full=FALSE))
-        #bind <- rowSums(abs(A))!=0 ## FIX: abs 3/3/16 
-        #ind <- which(bind)
-        #bind <- bind[!bdrop]
-        #A <- A[!bdrop,!bdrop[ind]]
         A <- Sl.mult(rp$Sl,diag(q),i,full=TRUE)[!bdrop,!bdrop]
         bind <- rowSums(abs(A))!=0 ## row/cols of non-zero block
         A <- A[,bind] ## drop the zero columns  
@@ -1169,24 +1185,20 @@ gam.fit5 <- function(x,y,lsp,Sl,weights=NULL,offset=NULL,deriv=2,family,
   ## Compute derivs of b'Sb...
 
   if (deriv>0) {
-    # Sb <- St%*%coef
     Skb <- Sl.termMult(rp$Sl,fcoef,full=TRUE)
     d1bSb <- rep(0,m)
     for (i in 1:m) { 
       Skb[[i]] <- Skb[[i]][!bdrop]
-      d1bSb[i] <- # 2*sum(d1b[,i]*Sb) + # cancels
-                  sum(coef*Skb[[i]])
+      d1bSb[i] <- sum(coef*Skb[[i]])
     }
   }
  
   if (deriv>1) {
     d2bSb <- matrix(0,m,m)
-    # k <- 0
     for (i in 1:m) {
       Sd1b <- St%*%d1b[,i] 
       for (j in i:m) {
-         k <- k + 1
-         d2bSb[j,i] <- d2bSb[i,j] <- 2*sum( # d2b[,k]*Sb + # cancels 
+         d2bSb[j,i] <- d2bSb[i,j] <- 2*sum( 
          d1b[,i]*Skb[[j]] + d1b[,j]*Skb[[i]] + d1b[,j]*Sd1b)
       }
       d2bSb[i,i] <-  d2bSb[i,i] + sum(coef*Skb[[i]]) 
@@ -1206,12 +1218,13 @@ gam.fit5 <- function(x,y,lsp,Sl,weights=NULL,offset=NULL,deriv=2,family,
     if (!is.null(REML1)) cat("REML1 =",REML1,"\n")
   }
   REML2 <- if (deriv<2) NULL else -( (d2l - d2bSb/2)/gamma + rp$ldet2/2  - d2ldetH/2 ) 
- ## bSb <- t(coef)%*%St%*%coef
+
+  ## Get possibly multiple linear predictors
   lpi <- attr(x,"lpi")
-  if (is.null(lpi)) { 
+  if (is.null(lpi)) { ## only one...
     linear.predictors <- if (is.null(offset)) as.numeric(x%*%coef) else as.numeric(x%*%coef+offset)
     fitted.values <- family$linkinv(linear.predictors) 
-  } else {
+  } else { ## multiple...
     fitted.values <- linear.predictors <- matrix(0,nrow(x),length(lpi))
     if (!is.null(offset)) offset[[length(lpi)+1]] <- 0
     for (j in 1:length(lpi)) {
@@ -1269,6 +1282,7 @@ efsud <- function(x,y,lsp,Sl,weights=NULL,offset=NULL,family,
   fit <- gam.fit5(x=x,y=y,lsp=lsp,Sl=Sl,weights=weights,offset=offset,deriv=0,family=family,
                      control=control,Mp=Mp,start=start,gamma=1)
   score.hist <- rep(0,200)
+  tiny <- .Machine$double.eps^.5 ## used to bound above zero
   for (iter in 1:200) {
     start <- fit$coefficients
     ## obtain Vb...
@@ -1294,8 +1308,9 @@ efsud <- function(x,y,lsp,Sl,weights=NULL,offset=NULL,family,
     for (i in 1:length(Sb)) {
       bSb[i] <- sum(start*Sb[[i]])
     }
-    a <- pmax(0,fit$S1*exp(-lsp) - trVS)
-    r <- a/pmax(0,bSb)
+   
+    a <- pmax(tiny,fit$S1*exp(-lsp) - trVS)
+    r <- a/pmax(tiny,bSb)
     r[a==0&bSb==0] <- 1
     r[!is.finite(r)] <- 1e6
     lsp1 <- pmin(lsp + log(r)*mult,control$efs.lspmax)

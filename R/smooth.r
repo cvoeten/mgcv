@@ -1,4 +1,4 @@
-##  R routines for the package mgcv (c) Simon Wood 2000-2016
+##  R routines for the package mgcv (c) Simon Wood 2000-2019
 
 ##  This file is primarily concerned with defining classes of smoother,
 ##  via constructor methods and prediction matrix methods. There are
@@ -2032,29 +2032,27 @@ smooth.construct.fs.smooth.spec <- function(object,data,knots) {
     object$S[[i+1]] <- object$S[[1]]*0
     object$S[[i+1]][object$rank+i,object$rank+i] <- 1  
   }
-  
+ 
   object$P <- rp$P ## X' = X%*%P, where X is original version
   object$fterm <- fterm ## the factor name...
   if (!is.factor(fac)) warning("no factor supplied to fs smooth")
   object$flev <- levels(fac)
+  object$fac <- fac ## gamm should use this for grouping
 
-  ## now full penalties ...
-  #fullS <- list()
-  #fullS[[1]] <- diag(rep(c(rp$D,rep(0,null.d)),nf)) ## range space penalties
-  #for (i in 1:null.d) { ## null space penalties
-  #    um <- rep(0,ncol(rp$X));um[object$rank+i] <- 1
-  #    fullS[[i+1]] <- diag(rep(um,nf))
-  #}
   ## Now the model matrix 
   if (gamm) { ## no duplication, gamm will handle this by nesting
     if (object$fixed==TRUE) stop("\"fs\" terms can not be fixed here")
     object$X <- rp$X 
-    object$fac <- fac ## gamm should use this for grouping
+    #object$fac <- fac ## gamm should use this for grouping
     object$te.ok <- 0 ## would break special handling
     ## rank??
     
   } else { ## duplicate model matrix columns, and penalties...
     nf <- length(object$flev)
+    ## Store the base model matrix/S in case user wants to convert to r.e. but
+    ## has not created with a "gamm" attribute on object
+    object$Xb <- rp$X
+    object$base$S <- object$S
     ## creating the model matrix...
     object$X <- rp$X * as.numeric(fac==object$flev[1])
     if (nf>1) for (i in 2:nf) { 
@@ -2535,7 +2533,6 @@ smooth.construct.mrf.smooth.spec <- function(object, data, knots) {
       if (length(ind)>0) for (i in length(ind):1) object$xt$polys[[ind[i]]] <- NULL 
     }
     object$plot.me <- TRUE
-    object$dim <- 2 ## signal that it's really 2D here to avoid attempt to plot in te term
     ## polygon list in correct format
   } else { 
     object$plot.me <- FALSE ## can't plot without polygon information
@@ -2735,7 +2732,6 @@ smooth.construct.sos.smooth.spec<-function(object,data,knots)
 ## Assumption: first variable is lat, second is lon!!
 { ## deal with possible extra arguments of "sos" type smooth
   xtra <- list()
-  shrink <- attr(object,'shrink')
 
   if (is.null(object$xt$max.knots)) xtra$max.knots <- 2000 
   else xtra$max.knots <- object$xt$max.knots 
@@ -2850,31 +2846,10 @@ smooth.construct.sos.smooth.spec<-function(object,data,knots)
   object$S[[1]] <- t(t(xs*object$S[[1]])*xs)
   object$xc.scale <- xs
 
-  if (!is.null(shrink)) { # then add shrinkage term to penalty 
-    ## Modify the penalty by increasing the penalty on the 
-    ## unpenalized space from zero... 
-    es <- eigen(object$S[[1]],symmetric=TRUE)
-    ## now add a penalty on the penalty null space
-    es$values[k] <- es$values[k-1]*shrink
-    ## ... so penalty on null space is still less than that on range space.
-    object$S[[1]] <- es$vectors%*%(as.numeric(es$values)*t(es$vectors))
-    object$rank <- k   # penalty rank
-    object$null.space.dim <- 0
-  }
-
   object
 } ## end of smooth.construct.sos.smooth.spec
 
 
-
-smooth.construct.soss.smooth.spec <- function(object,data,knots)
-# implements a class of sos like smooths with an additional shrinkage
-# term in the penalty... this allows for fully integrated GCV model selection
-{ attr(object,"shrink") <- .1
-  object <- smooth.construct.sos.smooth.spec(object,data,knots)
-  class(object) <- "soss.smooth"
-  object
-} ## smooth.construct.soss.smooth.spec
 
 Predict.matrix.sos.smooth <- function(object,data)
 # prediction method function for the spline on the sphere smooth class
@@ -2908,12 +2883,6 @@ Predict.matrix.sos.smooth <- function(object,data)
   X <- t(t(X)*object$xc.scale) ## apply column scaling
   X 
 } ## Predict.matrix.sos.smooth
-
-Predict.matrix.soss.smooth <- function(object,data)
-# this is the prediction method for a spline on the sphere smooth 
-# with shrinkage
-{ Predict.matrix.sos.smooth(object,data)
-} ## Predict.matrix.soss.smooth
 
 
 ###########################

@@ -123,6 +123,7 @@ Sl.setup <- function(G) {
           Sl[[b]]$start <- G$smooth[[i]]$first.para + sbStart[j]-1
           Sl[[b]]$stop <- G$smooth[[i]]$first.para + sbStop[j]-1
           Sl[[b]]$rank <- G$smooth[[i]]$rank[j]
+	  Sl[[b]]$lambda <- 1 ## dummy here
           Sl[[b]]$repara <- TRUE ## signals ok to linearly reparameterize
           if (!is.null(G$smooth[[i]]$g.index)) { ## then some parameters are non-linear - can't re-param
             if (any(G$smooth[[i]]$g.index[ind])) Sl[[b]]$repara <- FALSE
@@ -774,7 +775,6 @@ Sl.ift <- function(Sl,R,X,y,beta,piv,rp) {
   }
   XX.db <- t(X)%*%(X%*%db)
   S.db <- Sl.mult(Sl,db,k=0)
-##  Sk.db <- Sl.termMult(Sl,db,full=TRUE) ## Sk.db[[j]][,k] is S_j d beta / d rho_k
 
   rss2 <- bSb2 <- matrix(0,nd,nd)
   for (k in 1:nd) { ## second derivative loop 
@@ -805,39 +805,16 @@ Sl.iftChol <- function(Sl,XX,R,d,beta,piv,nt=1) {
   ## timing close to identical - modified for parallel exec
   D <- matrix(unlist(Skb),nrow(XX),nd)
   bSb1 <- colSums(beta*D)
-  #D <- D[piv,]/d[piv]
   D1 <- .Call(C_mgcv_Rpforwardsolve,R,D[piv,]/d[piv],nt) ## note R transposed internally unlike forwardsolve
   db[piv,] <- -.Call(C_mgcv_Rpbacksolve,R,D1,nt)/d[piv]
-  #db[piv,] <- -backsolve(R,forwardsolve(t(R),D))/d[piv]
-
-  ## original serial - a bit slow with very large numbers of smoothing
-  ## parameters.... 
-  #Rt <- t(R) ## essential to do this first, or t(R) dominates cost in loop
-  #for (i in 1:nd) { ## compute the first derivatives
-  #  db[piv,i] <- -backsolve(R,forwardsolve(Rt,Skb[[i]][piv]/d[piv]))/d[piv] ## d beta/ d rho_i
-  #  bSb1[i] <- sum(beta*Skb[[i]])  ## d b'Sb / d_rho_i
-  #}
   
   ## XX.db <- XX%*%db
   XX.db <- .Call(C_mgcv_pmmult2,XX,db,0,0,nt)
-  #XX.db[piv,] <- d[piv]*(t(R)%*%(R%*%(d[piv]*db[piv,]))) ## X'Xdb
-
+ 
   S.db <- Sl.mult(Sl,db,k=0)
-  ##Sk.db <- Sl.termMult(Sl,db,full=TRUE) ## Sk.db[[j]][,k] is S_j d beta / d rho_k
 
-  ## following loop very slow if large numbers of smoothing parameters...
-  #rss2 <- bSb2 <- matrix(0,nd,nd)
-  #for (k in 1:nd) { ## second derivative loop 
-  #  for (j in k:nd) {
-  #    rss2[j,k] <- rss2[k,j] <- 2 * sum(db[,j]*XX.db[,k]) 
-  #    bSb2[j,k] <- bSb2[k,j] <-  (k==j)*sum(beta*Skb[[k]])  + 2*(sum(db[,k]*(Skb[[j]]+S.db[,j])) + 
-  #                               sum(db[,j]*Skb[[k]]))                                  
-  #  }
-  #}
-  ## rss2 <- 2 * t(db) %*% XX.db
   rss2 <- 2 * .Call(C_mgcv_pmmult2,db,XX.db,1,0,nt)
   bSb2 <- diag(x=colSums(beta*D),nrow=nd)
-  ## bSb2 <- bSb2 + 2*(t(db)%*%(D+S.db) + t(D)%*%db)
   bSb2 <- bSb2 + 2 * (.Call(C_mgcv_pmmult2,db,D+S.db,1,0,nt) + .Call(C_mgcv_pmmult2,D,db,1,0,nt))
   list(bSb=sum(beta*Sb),bSb1=bSb1,bSb2=bSb2,
        d1b=db ,rss1=rss1,rss2=rss2)
@@ -845,17 +822,19 @@ Sl.iftChol <- function(Sl,XX,R,d,beta,piv,nt=1) {
 
 
 Sl.fitChol <- function(Sl,XX,f,rho,yy=0,L=NULL,rho0=0,log.phi=0,phi.fixed=TRUE,
-                       nobs=0,Mp=0,nt=1,tol=0,gamma=1) {
+                       nobs=0,Mp=0,nt=c(1,1),tol=0,gamma=1) {
 ## given X'WX in XX and f=X'Wy solves the penalized least squares problem
 ## with penalty defined by Sl and rho, and evaluates a REML Newton step, the REML 
 ## gradiant and the the estimated coefs bhat. If phi.fixed=FALSE then we need 
-## yy = y'Wy in order to get derivsatives w.r.t. phi. 
+## yy = y'Wy in order to get derivsatives w.r.t. phi.
+## NOTE: with an optimized BLAS nt==1 is likely to be much faster than
+##       nt > 1
   tol <- as.numeric(tol)
   rho <- if (is.null(L)) rho + rho0 else L%*%rho + rho0
   if (length(rho)<length(rho0)) rho <- rho0 ## ncol(L)==0 or length(rho)==0
   ## get log|S|_+ without stability transform... 
   fixed <- rep(FALSE,length(rho))
-  ldS <- ldetS(Sl,rho,fixed,np=ncol(XX),root=FALSE,repara=FALSE,nt=nt)
+  ldS <- ldetS(Sl,rho,fixed,np=ncol(XX),root=FALSE,repara=FALSE,nt=nt[1])
   
   ## now the Cholesky factor of the penalized Hessian... 
   #XXp <- XX+crossprod(ldS$E) ## penalized Hessian
@@ -864,7 +843,7 @@ Sl.fitChol <- function(Sl,XX,f,rho,yy=0,L=NULL,rho0=0,log.phi=0,phi.fixed=TRUE,
   d <- diag(XXp);ind <- d<=0
   d[ind] <- 1;d[!ind] <- sqrt(d[!ind])
   #XXp <- t(XXp/d)/d ## diagonally precondition
-  R <- if (nt>1) pchol(t(XXp/d)/d,nt) else suppressWarnings(chol(t(XXp/d)/d,pivot=TRUE))
+  R <- if (nt[2]>1) pchol(t(XXp/d)/d,nt[2]) else suppressWarnings(chol(t(XXp/d)/d,pivot=TRUE))
   r <- min(attr(R,"rank"),Rrank(R))
   p <- ncol(XXp)
   piv <- attr(R,"pivot") #;rp[rp] <- 1:p
@@ -876,15 +855,17 @@ Sl.fitChol <- function(Sl,XX,f,rho,yy=0,L=NULL,rho0=0,log.phi=0,phi.fixed=TRUE,
   beta[piv] <- backsolve(R,(forwardsolve(t(R),f[piv]/d[piv])))/d[piv]
  
   ## get component derivatives based on IFT (noting that ldS$Sl has s.p.s updated to current)
-  dift <- Sl.iftChol(ldS$Sl,XX,R,d,beta,piv,nt=nt)
+  dift <- Sl.iftChol(ldS$Sl,XX,R,d,beta,piv,nt=nt[1])
  
   ## now the derivatives of log|X'X+S|
-  P <- pbsi(R,nt=nt,copy=TRUE) ## invert R 
   PP <- matrix(0,p,p)
-  PP[piv,piv] <- if (nt==1) tcrossprod(P) else pRRt(P,nt) ## PP'
+  if (nt[2]>1) {
+    P <- pbsi(R,nt=nt[2],copy=TRUE) ## invert R 
+    PP[piv,piv] <-  pRRt(P,nt[2]) ## PP'
+  } else PP[piv,piv] <- chol2inv(R)
   PP <- t(PP/d)/d
   ldetXXS <- 2*sum(log(diag(R))+log(d[piv])) ## log|X'X+S|
-  dXXS <- d.detXXS(ldS$Sl,PP,nt=nt) ## derivs of log|X'X+S|
+  dXXS <- d.detXXS(ldS$Sl,PP,nt=nt[1]) ## derivs of log|X'X+S|
 
   phi <- exp(log.phi)  
 
