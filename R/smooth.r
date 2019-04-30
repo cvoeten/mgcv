@@ -2732,6 +2732,7 @@ smooth.construct.sos.smooth.spec<-function(object,data,knots)
 ## Assumption: first variable is lat, second is lon!!
 { ## deal with possible extra arguments of "sos" type smooth
   xtra <- list()
+  shrink <- attr(object,'shrink')
 
   if (is.null(object$xt$max.knots)) xtra$max.knots <- 2000 
   else xtra$max.knots <- object$xt$max.knots 
@@ -2846,6 +2847,18 @@ smooth.construct.sos.smooth.spec<-function(object,data,knots)
   object$S[[1]] <- t(t(xs*object$S[[1]])*xs)
   object$xc.scale <- xs
 
+  if (!is.null(shrink)) { # then add shrinkage term to penalty 
+    ## Modify the penalty by increasing the penalty on the 
+    ## unpenalized space from zero... 
+    es <- eigen(object$S[[1]],symmetric=TRUE)
+    ## now add a penalty on the penalty null space
+    es$values[k] <- es$values[k-1]*shrink
+    ## ... so penalty on null space is still less than that on range space.
+    object$S[[1]] <- es$vectors%*%(as.numeric(es$values)*t(es$vectors))
+    object$rank <- k   # penalty rank
+    object$null.space.dim <- 0
+  }
+
   object
 } ## end of smooth.construct.sos.smooth.spec
 
@@ -2883,6 +2896,21 @@ Predict.matrix.sos.smooth <- function(object,data)
   X <- t(t(X)*object$xc.scale) ## apply column scaling
   X 
 } ## Predict.matrix.sos.smooth
+
+smooth.construct.soss.smooth.spec <- function(object,data,knots)
+# implements a class of sos like smooths with an additional shrinkage
+# term in the penalty... this allows for fully integrated GCV model selection
+{ attr(object,"shrink") <- .1
+  object <- smooth.construct.sos.smooth.spec(object,data,knots)
+  class(object) <- "soss.smooth"
+  object
+} ## smooth.construct.soss.smooth.spec
+
+Predict.matrix.soss.smooth <- function(object,data)
+# this is the prediction method for a spline on the sphere smooth 
+# with shrinkage
+{ Predict.matrix.sos.smooth(object,data)
+} ## Predict.matrix.soss.smooth
 
 
 ###########################
